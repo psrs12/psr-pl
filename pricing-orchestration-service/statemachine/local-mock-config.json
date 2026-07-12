@@ -1,0 +1,51 @@
+{
+  "StateMachines": {
+    "PricingOrchestration": {
+      "TestCases": {
+        "HappyPath": {
+          "SoftPullRequest": "SoftPullApproved",
+          "PricingCalculation": "PricingApproved",
+          "HardPullRequest": "HardPullApproved",
+          "DecisionRouting": "DecisionApproved",
+          "UpdateApplicationStatus": "UpdateStatusOk"
+        },
+        "DeclinedPath": {
+          "SoftPullRequest": "SoftPullLow",
+          "PricingCalculation": "PricingZero",
+          "HardPullRequest": "HardPullLow",
+          "DecisionRouting": "DecisionDeclined",
+          "UpdateApplicationStatus": "UpdateStatusOk"
+        }
+      }
+    }
+  },
+  "MockedResponses": {
+    "SoftPullApproved": {
+      "0": { "Return": { "Payload": { "score": 720, "source": "SOFT_PULL" }, "StatusCode": 200 } }
+    },
+    "SoftPullLow": {
+      "0": { "Return": { "Payload": { "score": 550, "source": "SOFT_PULL" }, "StatusCode": 200 } }
+    },
+    "PricingApproved": {
+      "0": { "Return": { "amountCents": 1500000, "termMonths": 60, "aprPercentage": 11.9 } }
+    },
+    "PricingZero": {
+      "0": { "Return": { "amountCents": 0, "termMonths": 60, "aprPercentage": 24.9 } }
+    },
+    "HardPullApproved": {
+      "0": { "Return": { "Payload": { "score": 710, "source": "HARD_PULL" }, "StatusCode": 200 } }
+    },
+    "HardPullLow": {
+      "0": { "Return": { "Payload": { "score": 540, "source": "HARD_PULL" }, "StatusCode": 200 } }
+    },
+    "DecisionApproved": {
+      "0": { "Return": { "Payload": { "outcome": "APPROVED", "reason": "meets standard approval threshold" }, "StatusCode": 200 } }
+    },
+    "DecisionDeclined": {
+      "0": { "Return": { "Payload": { "outcome": "DECLINED", "reason": "below minimum credit threshold" }, "StatusCode": 200 } }
+    },
+    "UpdateStatusOk": {
+      "0": { "Return": { "Payload": {}, "StatusCode": 200 } }
+    }
+  }
+}

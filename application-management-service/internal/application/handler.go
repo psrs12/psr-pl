@@ -31,7 +31,13 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+basePath+"/applications", h.submit)
 	mux.HandleFunc("POST "+basePath+"/applications/login", h.login)
 	mux.HandleFunc("GET "+basePath+"/applications/{id}/status", h.status)
-	mux.HandleFunc("PUT "+basePath+"/applications/{id}/status", h.updateStatus)
+
+	// Internal endpoints: no session-token auth, secured at the
+	// network/IAM layer instead. Called by pricing-orchestration-service's
+	// Lambda steps and by workflow-status-service, never by the browser.
+	mux.HandleFunc("PUT /internal/applications/{id}/status", h.updateStatus)
+	mux.HandleFunc("GET /internal/applications/{id}/execution", h.executionARN)
+	mux.HandleFunc("POST /internal/sessions/validate", h.validateSession)
 }
 
 type validateInvitationRequestBody struct {
@@ -245,6 +251,38 @@ func (h *Handler) updateStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, app)
+}
+
+func (h *Handler) executionARN(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	arn, err := h.service.ExecutionARN(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			h.writeError(w, http.StatusNotFound, err)
+			return
+		}
+		h.writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"executionArn": arn})
+}
+
+type validateSessionRequestBody struct {
+	Token         string `json:"token"`
+	ApplicationID string `json:"applicationId"`
+}
+
+func (h *Handler) validateSession(w http.ResponseWriter, r *http.Request) {
+	var body validateSessionRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	valid := h.service.Authenticate(r.Context(), body.Token, body.ApplicationID) == nil
+	writeJSON(w, http.StatusOK, map[string]bool{"valid": valid})
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, err error) {

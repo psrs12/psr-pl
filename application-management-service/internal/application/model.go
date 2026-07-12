@@ -98,6 +98,7 @@ type Application struct {
 	Applicant    Applicant `json:"applicant" dynamodbav:"applicant"`
 	Offer        *Offer    `json:"offer,omitempty" dynamodbav:"offer,omitempty"`
 	Status       Status    `json:"applicationStatus" dynamodbav:"status"`
+	ExecutionARN string    `json:"-" dynamodbav:"executionArn,omitempty"`
 	SubmittedAt  time.Time `json:"submittedAt" dynamodbav:"submittedAt"`
 	LastActionAt time.Time `json:"lastActionAt" dynamodbav:"lastActionAt"`
 }

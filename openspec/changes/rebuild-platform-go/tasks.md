@@ -36,20 +36,38 @@
 
 ## 5. Cross-service orchestration
 
-- [ ] 5.1 Design the Step Functions state machine for the acquisition workflow (submission → compliance gates → pricing → decision → funding), referencing the lifecycle in proposal.md.
-- [ ] 5.2 Resolve the open design question: whether `compliance-orchestration-service`'s gate logic lives in the state machine or inside the service as invoked tasks.
-- [ ] 5.3 Define the EventBridge domain events each service publishes/consumes, replacing today's Kafka topics one-for-one where behavior must be preserved.
+- [x] 5.1 Design the Step Functions state machine for the pricing portion of the acquisition workflow (submission → soft pull → pricing → hard pull → decision → update status). Compliance gates and the funding tail are not yet part of this state machine — see 5.2.
+- [ ] 5.2 Resolve the open design question: whether `compliance-orchestration-service`'s gate logic lives in the state machine or inside the service as invoked tasks. Still open — not addressed by the pricing-orchestration work.
+- [ ] 5.3 Define the EventBridge domain events each service publishes/consumes, replacing today's Kafka topics one-for-one where behavior must be preserved. Not started — the submission → pricing-workflow handoff uses a direct `StartExecution` call instead (see design.md decision), not EventBridge.
 
 ## 6. Deferred service design (tracked, not detailed in this change)
 
-- [ ] 6.1 Design `pricing-orchestration-service`'s DynamoDB access patterns and its consumption of the offer economics snapshotted on Application.
+- [x] 6.1 ~~Design `pricing-orchestration-service`'s DynamoDB access patterns~~ — superseded: `pricing-orchestration-service` has no DynamoDB table at all (Step-Functions-native, no persistence of its own; see design.md decision). Its consumption of the offer economics on the Application record happens via the workflow input `application-management-service` passes at `StartExecution`, not a data lookup.
 - [ ] 6.2 Design `offer-acceptance-service`'s DynamoDB access patterns and e-sign integration.
 - [ ] 6.3 Design `document-service`'s DynamoDB access patterns and document storage (S3) integration.
 - [ ] 6.4 Design `compliance-orchestration-service`'s DynamoDB access patterns for the five compliance gates, including audit/status-lookup GSIs.
 
 ## 7. Verification
 
-- [ ] 7.1 Unit test `application-management-service`'s Service layer with no AWS/HTTP dependencies (mock the `OfferValidator`/`OfferStatusUpdater` adapter only).
-- [ ] 7.2 Repository integration tests against a local DynamoDB instance for `application-management-service`.
-- [ ] 7.3 API test covering all three entry paths, including the offer-validation-failure-degrades-to-direct scenario.
-- [ ] 7.4 Workflow integration test for the inactivity-expiry sweep reverting an offer to active.
+- [x] 7.1 Unit test `application-management-service`'s Service layer with no AWS/HTTP dependencies (mock the `OfferValidator`/`OfferStatusUpdater` adapter only).
+- [x] 7.2 Repository integration tests against a local DynamoDB instance for `application-management-service` — done manually via DynamoDB Local + `curl`/`aws dynamodb get-item` (create, session issuance, no-delete); not yet automated as `go test` integration tests.
+- [ ] 7.3 API test covering all three entry paths, including the offer-validation-failure-degrades-to-direct scenario. Partner path still untested (no UI support for it).
+- [ ] 7.4 Workflow integration test for the inactivity-expiry sweep reverting an offer to active. Sweep itself is unimplemented (see 4.1-4.5).
+
+## 8. pricing-orchestration-service
+
+- [x] 8.1 Implement `internal/pricing`'s business logic (credit-pull simulation, pricing calculation, decision routing) as pure, unit-tested Go — no AWS dependency. Explicitly a placeholder for a real bureau/underwriting integration, not production pricing logic.
+- [x] 8.2 Implement soft-pull, hard-pull, and decision-routing as individual Lambda functions (`cmd/soft-pull-lambda`, `cmd/hard-pull-lambda`, `cmd/decision-lambda`).
+- [x] 8.3 Implement pricing-calculation as a Fargate task (`cmd/pricing-fargate`) using the `ecs:runTask.waitForTaskToken` pattern (`SendTaskSuccess`/`SendTaskFailure`), since `.sync` alone has no return-value channel.
+- [x] 8.4 Implement `update-status-lambda`, which calls `application-management-service`'s internal status-update endpoint with the terminal decision.
+- [x] 8.5 Write the Step Functions state machine definition (`statemachine/definition.asl.json`) chaining all five steps with `ResultPath`-based data accumulation.
+- [x] 8.6 Verify the state machine registers and runs against Step Functions Local; verify `workflow-status-service`'s execution-history parsing against a real (if Lambda-less) execution. Full mocked-response control-flow testing (AWS's `SFN_MOCK_CONFIG` feature) was attempted but did not work in this sandbox — flagged in design.md as something to revisit, not silently dropped.
+- [ ] 8.7 Deploy and dry-run against real (or better-emulated) Lambda/Fargate — not done; see design.md's risk note.
+
+## 9. workflow-status-service
+
+- [x] 9.1 Implement `ExecutionReader` (DescribeExecution/GetExecutionHistory) and verify it against a real Step Functions Local execution — proved the current-state-parsing logic matches real API response shapes, not just assumptions.
+- [x] 9.2 Implement `ApplicationClient` calling `application-management-service`'s two new internal endpoints (session validate, execution lookup) — no duplicated session or execution-mapping state in this service.
+- [x] 9.3 Implement running-state → status/next-steps and terminal-outcome → status/next-steps translation (`translate.go`), unit-tested with fakes for all four outcome branches (unauthorized, running, approved, failed).
+- [x] 9.4 Wire `application-management-service`: add `GET /internal/applications/{id}/execution` and `POST /internal/sessions/validate`, and have `Submit()` call `StartExecution` and persist the `executionArn`.
+- [ ] 9.5 UI integration: `application-management-ui`'s `StatusPage.jsx` still calls `application-management-service`'s own `GET .../status`, not `workflow-status-service`. Not yet switched over.

@@ -10,19 +10,16 @@ import (
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 
-	"application-management-service/internal/application"
+	"workflow-status-service/internal/workflowstatus"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	tableName := requireEnv(logger, "APPLICATION_TABLE_NAME")
-	offerLogURL := requireEnv(logger, "OFFERLOG_BASE_URL")
-	stateMachineARN := requireEnv(logger, "PRICING_STATE_MACHINE_ARN")
-	port := envOrDefault("PORT", "8081")
+	appManagementBaseURL := requireEnv(logger, "APPLICATION_MANAGEMENT_BASE_URL")
+	port := envOrDefault("PORT", "8083")
 
 	ctx := context.Background()
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
@@ -31,33 +28,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	var dynamoOpts []func(*dynamodb.Options)
-	if endpoint := os.Getenv("DYNAMODB_ENDPOINT_URL"); endpoint != "" {
-		dynamoOpts = append(dynamoOpts, func(o *dynamodb.Options) { o.BaseEndpoint = &endpoint })
-	}
-	dynamoClient := dynamodb.NewFromConfig(awsCfg, dynamoOpts...)
-
 	var sfnOpts []func(*sfn.Options)
 	if endpoint := os.Getenv("STEPFUNCTIONS_ENDPOINT_URL"); endpoint != "" {
 		sfnOpts = append(sfnOpts, func(o *sfn.Options) { o.BaseEndpoint = &endpoint })
 	}
 	sfnClient := sfn.NewFromConfig(awsCfg, sfnOpts...)
 
-	repo := application.NewDynamoRepository(dynamoClient, tableName)
-	offerClient := application.NewOfferLogClient(offerLogURL, nil)
-	sessions := application.NewDynamoSessionStore(dynamoClient, tableName)
-	workflow := application.NewSFNWorkflowStarter(sfnClient, stateMachineARN)
-	service := application.NewService(repo, offerClient, sessions, workflow)
-	handler := application.NewHandler(service, logger)
+	applications := workflowstatus.NewApplicationManagementClient(appManagementBaseURL, nil)
+	executions := workflowstatus.NewSFNExecutionReader(sfnClient)
+	service := workflowstatus.NewService(applications, executions)
+	handler := workflowstatus.NewHandler(service, logger)
 
 	mux := http.NewServeMux()
 	handler.Register(mux)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	server := &http.Server{
 		Addr:              ":" + port,
@@ -66,7 +51,7 @@ func main() {
 	}
 
 	go func() {
-		logger.Info("starting application-management-service", "port", port)
+		logger.Info("starting workflow-status-service", "port", port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("server error", "error", err)
 			os.Exit(1)
@@ -100,15 +85,11 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
-// withCORS lets the UI dev server (a different origin in local
-// development — different port on localhost) call this API. In
-// production the UI and API share an origin (see nginx.conf), so this
-// only matters for local dev, but it's harmless either way.
 func withCORS(next http.Handler, allowedOrigin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Channel-ID")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

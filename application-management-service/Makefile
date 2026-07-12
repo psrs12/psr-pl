@@ -12,6 +12,11 @@ OFFERLOG_BASE_URL  := http://localhost:$(OFFERLOG_MOCK_PORT)
 OFFERLOG_MOCK_PID_FILE := /tmp/psr-pl-offerlog-mock.pid
 OFFERLOG_MOCK_LOG      := /tmp/psr-pl-offerlog-mock.log
 
+# pricing-orchestration-service's Step Functions Local instance. Start it
+# separately first: `cd ../pricing-orchestration-service && make statemachine-up`.
+STEPFUNCTIONS_ENDPOINT_URL := http://localhost:8083
+PRICING_STATE_MACHINE_ARN  := arn:aws:states:us-east-1:123456789012:stateMachine:PricingOrchestration
+
 AWS_LOCAL_ENV := AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local AWS_DEFAULT_REGION=us-east-1
 
 build:
@@ -94,6 +99,8 @@ run: dev-env
 	APPLICATION_TABLE_NAME=$(TABLE_NAME) \
 	OFFERLOG_BASE_URL=$(OFFERLOG_BASE_URL) \
 	DYNAMODB_ENDPOINT_URL=$(DYNAMODB_ENDPOINT) \
+	STEPFUNCTIONS_ENDPOINT_URL=$(STEPFUNCTIONS_ENDPOINT_URL) \
+	PRICING_STATE_MACHINE_ARN=$(PRICING_STATE_MACHINE_ARN) \
 	PORT=$(PORT) \
 	$(AWS_LOCAL_ENV) \
 	$(GO) run ./cmd/server

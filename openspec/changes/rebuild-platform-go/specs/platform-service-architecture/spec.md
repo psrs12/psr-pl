@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Service boundaries preserved
-The platform SHALL consist of five independently deployed Go services, matching the existing documented service boundaries with one deliberate exception: `application-management-service`, `pricing-orchestration-service`, `offer-acceptance-service`, `document-service`, and `compliance-orchestration-service`. The platform SHALL NOT consolidate these into a single deployable.
+The platform SHALL consist of independently deployed capabilities matching the existing documented service boundaries, plus `workflow-status-service` (a new capability not present in the reference platform): `application-management-service`, `pricing-orchestration-service`, `workflow-status-service`, `offer-acceptance-service`, `document-service`, and `compliance-orchestration-service`. The platform SHALL NOT consolidate these into a single deployable. (`invitation-service` is a deliberate exception — see below.)
 
 #### Scenario: Deploying a single service
 - **WHEN** a change is made to one service's business logic
-- **THEN** it can be built, tested, and deployed independently of the other four services
+- **THEN** it can be built, tested, and deployed independently of the other services
 
 ### Requirement: Standalone services own their data or have multiple consumers
 A capability is only stood up as its own deployable service if it owns persistent data of its own, or is consumed by more than one other service. A capability that is a stateless facade over an external system, with a single internal consumer, SHALL instead be implemented as an internal adapter package inside its sole consumer.
@@ -33,11 +33,15 @@ Each service SHALL own its own DynamoDB table(s), designed around that service's
 - **THEN** it calls that service's API rather than reading its DynamoDB table directly
 
 ### Requirement: Compute placement
-Each of the five standalone services SHALL run as a long-running Fargate/ECS task for its synchronous REST API. Lambda SHALL be used only for short-lived, event-triggered work (e.g., notifications, validation steps, scheduled sweeps), not for hosting a service's primary API.
+A capability with a synchronous, applicant- or service-facing REST API SHALL run as a long-running Fargate/ECS task. A capability that is inherently a multi-step background workflow SHALL be implemented as Step Functions-invoked Lambda functions (lightweight steps) and Fargate tasks (CPU-bound steps), with no standalone API of its own. Lambda SHALL NOT host a service's primary synchronous REST API.
 
 #### Scenario: Primary REST API compute
 - **WHEN** a service's REST API is deployed
 - **THEN** it runs as a Fargate/ECS task, not as an API-Gateway-fronted Lambda function
+
+#### Scenario: Multi-step background workflow compute
+- **WHEN** a capability is a multi-step background process rather than a synchronous API (e.g. pricing-orchestration's soft pull / price / hard pull / decision sequence)
+- **THEN** it is implemented as individual Lambda/Fargate steps invoked by Step Functions, not as an always-on Fargate service
 
 #### Scenario: Scheduled inactivity sweep
 - **WHEN** the inactivity-expiry sweep runs

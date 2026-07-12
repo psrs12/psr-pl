@@ -21,6 +21,7 @@ type Service struct {
 	repo     Repository
 	offers   offerLogAdapter
 	sessions SessionStore
+	workflow WorkflowStarter
 	now      func() time.Time
 }
 
@@ -29,8 +30,8 @@ type offerLogAdapter interface {
 	OfferStatusUpdater
 }
 
-func NewService(repo Repository, offers offerLogAdapter, sessions SessionStore) *Service {
-	return &Service{repo: repo, offers: offers, sessions: sessions, now: time.Now}
+func NewService(repo Repository, offers offerLogAdapter, sessions SessionStore, workflow WorkflowStarter) *Service {
+	return &Service{repo: repo, offers: offers, sessions: sessions, workflow: workflow, now: time.Now}
 }
 
 // ResolveInvitation validates an invitation token against OfferLog and
@@ -98,6 +99,21 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (*Application, 
 		return nil, fmt.Errorf("persisting application: %w", err)
 	}
 
+	executionArn, err := s.workflow.Start(ctx, WorkflowInput{
+		ApplicationID:           app.ID,
+		RequestedAmountCents:    app.Applicant.RequestedAmountCents,
+		RequestedTermMonths:     app.Applicant.RequestedTermMonths,
+		AnnualIncomeCents:       app.Applicant.AnnualIncomeCents,
+		MonthlyObligationsCents: app.Applicant.MonthlyObligationsCents,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("starting pricing workflow: %w", err)
+	}
+	app.ExecutionARN = executionArn
+	if err := s.repo.Update(ctx, app); err != nil {
+		return nil, fmt.Errorf("recording workflow execution: %w", err)
+	}
+
 	if snapshot != nil {
 		if err := s.offers.MarkUsed(ctx, snapshot.IntakeID); err != nil {
 			return nil, fmt.Errorf("marking offer used: %w", err)
@@ -105,6 +121,18 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (*Application, 
 	}
 
 	return app, nil
+}
+
+// ExecutionARN returns the Step Functions execution linked to an
+// application, for workflow-status-service's internal use only — the
+// mapping lives here, not duplicated into workflow-status-service's own
+// storage.
+func (s *Service) ExecutionARN(ctx context.Context, id string) (string, error) {
+	app, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("getting application %s: %w", id, err)
+	}
+	return app.ExecutionARN, nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*Application, error) {
