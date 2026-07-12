@@ -33,6 +33,10 @@ The status response SHALL include a structured list of next steps (action and de
 - **WHEN** the linked execution has completed with an APPROVED, DECLINED, or REFERRED outcome
 - **THEN** the response's next-steps reflect that outcome (e.g. "select your offer" for APPROVED)
 
+#### Scenario: Application is awaiting offer selection
+- **WHEN** the linked execution is paused at the offer-selection step
+- **THEN** the response's status is OFFER_PENDING
+
 ### Requirement: No duplicated execution or session state
 `workflow-status-service` SHALL NOT independently store the applicationId-to-execution mapping or any session data. Both SHALL be looked up from `application-management-service` on every request.
 

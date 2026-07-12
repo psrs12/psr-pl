@@ -6,6 +6,9 @@ package workflowstatus
 var stateStatus = map[string]Status{
 	"SoftPullRequest":         StatusSoftPullPending,
 	"PricingCalculation":      StatusPricingPending,
+	"AwaitOfferSelection":     StatusOfferPending,
+	"ConsentGivenCheck":       StatusOfferPending,
+	"ConsentDeclined":         StatusDecisionPending,
 	"HardPullRequest":         StatusHardPullPending,
 	"DecisionRouting":         StatusDecisionPending,
 	"UpdateApplicationStatus": StatusDecisionPending,

@@ -11,6 +11,7 @@ const (
 	StatusProcessing      Status = "PROCESSING"
 	StatusSoftPullPending Status = "SOFT_PULL_PENDING"
 	StatusPricingPending  Status = "PRICING_PENDING"
+	StatusOfferPending    Status = "OFFER_PENDING"
 	StatusHardPullPending Status = "HARD_PULL_PENDING"
 	StatusDecisionPending Status = "DECISION_PENDING"
 	StatusApproved        Status = "APPROVED"

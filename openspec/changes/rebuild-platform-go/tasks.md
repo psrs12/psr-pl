@@ -43,7 +43,7 @@
 ## 6. Deferred service design (tracked, not detailed in this change)
 
 - [x] 6.1 ~~Design `pricing-orchestration-service`'s DynamoDB access patterns~~ — superseded: `pricing-orchestration-service` has no DynamoDB table at all (Step-Functions-native, no persistence of its own; see design.md decision). Its consumption of the offer economics on the Application record happens via the workflow input `application-management-service` passes at `StartExecution`, not a data lookup.
-- [ ] 6.2 Design `offer-acceptance-service`'s DynamoDB access patterns and e-sign integration.
+- [x] 6.2 Design `offer-acceptance-service`'s DynamoDB access patterns and e-sign integration — see section 11 below; built, not just designed.
 - [ ] 6.3 Design `document-service`'s DynamoDB access patterns and document storage (S3) integration.
 - [ ] 6.4 Design `compliance-orchestration-service`'s DynamoDB access patterns for the five compliance gates, including audit/status-lookup GSIs.
 
@@ -70,4 +70,28 @@
 - [x] 9.2 Implement `ApplicationClient` calling `application-management-service`'s two new internal endpoints (session validate, execution lookup) — no duplicated session or execution-mapping state in this service.
 - [x] 9.3 Implement running-state → status/next-steps and terminal-outcome → status/next-steps translation (`translate.go`), unit-tested with fakes for all four outcome branches (unauthorized, running, approved, failed).
 - [x] 9.4 Wire `application-management-service`: add `GET /internal/applications/{id}/execution` and `POST /internal/sessions/validate`, and have `Submit()` call `StartExecution` and persist the `executionArn`.
-- [x] 9.5 UI integration: `application-management-ui`'s `client.js` (`getApplication`) now calls `workflow-status-service` (`VITE_WORKFLOW_STATUS_API_URL`, new env var across `.env.local`/`.env.example`/`.env.production`), not `application-management-service`'s own status endpoint. Verified live: network log confirmed the status call actually hits `:8086` (workflow-status-service), and the response correctly rendered. Known gap found in the process, not fixed: `workflow-status-service`'s `ERROR` status value has no entry in `navigationConfig.js`'s map, so a failed/timed-out/aborted execution falls through to the generic "Processing" spinner fallback instead of a real error message — misleading but not crash-causing.
+- [x] 9.5 UI integration: `application-management-ui`'s `client.js` (`getApplication`) now calls `workflow-status-service` (`VITE_WORKFLOW_STATUS_API_URL`, new env var across `.env.local`/`.env.example`/`.env.production`), not `application-management-service`'s own status endpoint. Verified live: network log confirmed the status call actually hits `:8086` (workflow-status-service), and the response correctly rendered.
+- [x] 9.6 Fix the `ERROR` status gap found while doing 9.5: `navigationConfig.js` had no entry for it, so a failed/timed-out/aborted execution fell through to the generic "Processing" spinner instead of a real error. Added an `error` static-block kind + `ErrorScreen.jsx`; verified with a route-mocked browser render and an added test.
+
+## 10. pricing-orchestration-service: offer-selection API
+
+- [x] 10.1 Insert `AwaitOfferSelection` (`lambda:invoke.waitForTaskToken`) between `PricingCalculation` and `HardPullRequest`, and a `ConsentGivenCheck` Choice state so a hard pull cannot happen without recorded consent (`ConsentDeclined` routes straight to a declined outcome).
+- [x] 10.2 Implement `present-offer-lambda`, which stores the task token + priced offer via a new internal endpoint rather than resuming the execution itself.
+- [x] 10.3 Implement the offer-selection API (`GET .../selected-offer`, `POST .../selected-offer/confirm`) with its own small DynamoDB table (`pl-pricing-offer`) — the one deliberate exception to "no standalone API," justified because this step now has two real consumers (the paused workflow, and `pricing-offers-ui`).
+- [x] 10.4 Add session authentication to the offer-selection API. Found missing during live verification (not code review) — every other applicant-facing endpoint in the platform validates a session, this one initially didn't. Fixed with the same `SessionValidator` → `application-management-service` pattern `workflow-status-service` uses; verified 401/401/200 for no-token/wrong-token/real-token.
+- [x] 10.5 Fix `Confirm`'s write ordering: resume the workflow *before* persisting `CONFIRMED`, not after. Found via live testing — the original ordering left a record permanently stuck as confirmed-but-not-resumed when the resume call failed. Regression-tested with a fake resumer that fails then succeeds on retry.
+- [x] 10.6 Add `AwaitOfferSelection`/`ConsentGivenCheck`/`ConsentDeclined` to `workflow-status-service`'s state-to-status map (`OFFER_PENDING`, `DECISION_PENDING`).
+- [ ] 10.7 Real end-to-end pause-and-resume through a genuine (not fabricated) task token — not verified; requires the still-unresolved Fargate execution gap (see design.md) to produce a real paused execution first.
+
+## 11. offer-acceptance-service
+
+- [x] 11.1 Implement declarations (fixed placeholder set) and e-signature capture (`Repository`: create/get only, no update/delete).
+- [x] 11.2 Enforce all-required-declarations-accepted before an e-signature is recorded; reject partial acceptance and double-signing. Unit-tested for both.
+- [x] 11.3 On successful e-signature, call `application-management-service`'s internal status-update endpoint to advance status to `DOCUMENTS_REQUIRED`.
+- [ ] 11.4 Live end-to-end verification (submit → approve → e-sign → confirm status advances) — not done this session; only unit-tested with fakes.
+
+## 12. pricing-offers-ui
+
+- [x] 12.1 Implement `<pricing-offer-selector>` as a hand-rolled custom element (no React — see design.md) built via Vite library mode to a single IIFE, matching how `application-management-ui` already expected to load it.
+- [x] 12.2 Client-side hard-pull-consent enforcement (confirm button no-ops with a visible error until the box is checked) in addition to the server-side `ConsentGivenCheck` gate.
+- [x] 12.3 Verified live in a real browser against the real offer-selection API: offer loads with real fetched data, consent-required validation blocks submission, and a genuine confirm failure (fabricated task token) is surfaced as a visible error rather than hanging.

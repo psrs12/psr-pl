@@ -5,6 +5,7 @@
         "HappyPath": {
           "SoftPullRequest": "SoftPullApproved",
           "PricingCalculation": "PricingApproved",
+          "AwaitOfferSelection": "OfferSelectionConfirmed",
           "HardPullRequest": "HardPullApproved",
           "DecisionRouting": "DecisionApproved",
           "UpdateApplicationStatus": "UpdateStatusOk"
@@ -12,6 +13,7 @@
         "DeclinedPath": {
           "SoftPullRequest": "SoftPullLow",
           "PricingCalculation": "PricingZero",
+          "AwaitOfferSelection": "OfferSelectionConfirmed",
           "HardPullRequest": "HardPullLow",
           "DecisionRouting": "DecisionDeclined",
           "UpdateApplicationStatus": "UpdateStatusOk"
@@ -31,6 +33,9 @@
     },
     "PricingZero": {
       "0": { "Return": { "amountCents": 0, "termMonths": 60, "aprPercentage": 24.9 } }
+    },
+    "OfferSelectionConfirmed": {
+      "0": { "Return": { "consentGiven": true } }
     },
     "HardPullApproved": {
       "0": { "Return": { "Payload": { "score": 710, "source": "HARD_PULL" }, "StatusCode": 200 } }

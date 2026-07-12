@@ -1,5 +1,5 @@
 {
-  "Comment": "pricing-orchestration workflow: soft pull -> price -> hard pull -> decide -> update application status. Started by application-management-service on submission (see CLAUDE.md's Workflow Architecture: Persist Application -> Start Step Function).",
+  "Comment": "pricing-orchestration workflow: soft pull -> price -> await applicant offer selection + hard-pull consent -> hard pull -> decide -> update application status. Started by application-management-service on submission (see CLAUDE.md's Workflow Architecture: Persist Application -> Start Step Function).",
   "StartAt": "SoftPullRequest",
   "States": {
     "SoftPullRequest": {
@@ -36,7 +36,39 @@
         }
       },
       "ResultPath": "$.pricedOffer",
-      "Next": "HardPullRequest"
+      "Next": "AwaitOfferSelection"
+    },
+    "AwaitOfferSelection": {
+      "Comment": "Pauses until the applicant selects the offer and gives hard-pull consent, via pricing-orchestration-service's selected-offer API (POST .../confirm calls SendTaskSuccess with this task's token) -- not resumed by this Lambda itself.",
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${PresentOfferLambdaArn}",
+        "Payload": {
+          "taskToken.$": "$$.Task.Token",
+          "applicationId.$": "$.applicationId",
+          "pricedOffer.$": "$.pricedOffer"
+        }
+      },
+      "ResultPath": "$.offerSelection",
+      "Next": "ConsentGivenCheck"
+    },
+    "ConsentGivenCheck": {
+      "Type": "Choice",
+      "Choices": [
+        { "Variable": "$.offerSelection.consentGiven", "BooleanEquals": true, "Next": "HardPullRequest" }
+      ],
+      "Default": "ConsentDeclined"
+    },
+    "ConsentDeclined": {
+      "Comment": "No hard pull without explicit consent -- this is the FCRA gate, not an optional branch.",
+      "Type": "Pass",
+      "Parameters": {
+        "outcome": "DECLINED",
+        "reason": "applicant did not give hard-pull consent"
+      },
+      "ResultPath": "$.decision",
+      "Next": "UpdateApplicationStatus"
     },
     "HardPullRequest": {
       "Type": "Task",
