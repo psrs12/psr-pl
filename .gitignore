@@ -1,0 +1,14 @@
+.DS_Store
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+*.local
+
+# Go
+*.exe
+*.test
+
+# Claude Code local (personal, not shared project config)
+.claude/settings.local.json
