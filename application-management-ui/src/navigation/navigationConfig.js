@@ -5,12 +5,19 @@
 // that does not exist in the backend enum). COMPLIANCE_HOLD is intentionally
 // absent: it is not a real backend status today (see reconciliation notes in
 // openspec/changes/configurable-navigation-flow/design.md).
+//
+// ERROR is the one exception: it comes from workflow-status-service, not
+// application-management-service's own ApplicationStatus enum. It's
+// reported when the linked Step Functions execution itself failed, timed
+// out, or was aborted (see workflow-status-service/internal/workflowstatus/
+// translate.go's forError) — a distinct failure mode from any applicant
+// decision outcome, so it gets its own block rather than reusing 'declined'.
 
 /**
  * @typedef {
  *   | { kind: 'spinner', label: string, description: string, group: 'processing' | 'under-review' }
  *   | { kind: 'web-component', tag: string, scriptUrlKey: string, apiBaseUrlKey: string, attributes: string[], containerWidth: number, completionEvent?: string }
- *   | { kind: 'static-block', block: 'declined' | 'cancelled-expired' | 'post-acceptance', label?: string, message?: string }
+ *   | { kind: 'static-block', block: 'declined' | 'cancelled-expired' | 'post-acceptance' | 'error', label?: string, message?: string }
  * } ScreenDescriptor
  */
 
@@ -87,6 +94,8 @@ export const NAVIGATION_CONFIG = {
 
   CANCELLED: { kind: 'static-block', block: 'cancelled-expired', label: 'Cancelled' },
   EXPIRED: { kind: 'static-block', block: 'cancelled-expired', label: 'Expired' },
+
+  ERROR: { kind: 'static-block', block: 'error' },
 
   OFFER_ACCEPTED: POST_ACCEPTANCE_BLOCK('Offer Accepted', 'Your offer has been accepted. We are now completing final verification and collecting your disbursement details before your loan can be funded.'),
   FUNDING_PENDING: POST_ACCEPTANCE_BLOCK('Funding in Progress', 'Your loan funds are being prepared and will be disbursed shortly.'),

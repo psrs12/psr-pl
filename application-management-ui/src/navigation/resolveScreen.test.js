@@ -11,6 +11,11 @@ const CANONICAL_APPLICATION_STATUSES = [
   'FUNDED', 'COMPLETED', 'CANCELLED', 'EXPIRED',
 ];
 
+// Statuses that come from workflow-status-service, not
+// application-management-service's own ApplicationStatus enum — see
+// navigationConfig.js's comment on ERROR.
+const WORKFLOW_STATUS_SERVICE_STATUSES = ['ERROR'];
+
 describe('resolveScreen', () => {
   it('covers every canonical ApplicationStatus value', () => {
     for (const status of CANONICAL_APPLICATION_STATUSES) {
@@ -18,9 +23,10 @@ describe('resolveScreen', () => {
     }
   });
 
-  it('has no config entries outside the canonical status set', () => {
+  it('has no config entries outside the canonical status set plus known workflow-status-service statuses', () => {
+    const allowed = [...CANONICAL_APPLICATION_STATUSES, ...WORKFLOW_STATUS_SERVICE_STATUSES];
     for (const status of Object.keys(NAVIGATION_CONFIG)) {
-      expect(CANONICAL_APPLICATION_STATUSES).toContain(status);
+      expect(allowed).toContain(status);
     }
   });
 
@@ -35,5 +41,9 @@ describe('resolveScreen', () => {
 
   it('does not accept the UI-invented COMPLIANCE_HOLD status', () => {
     expect(() => resolveScreen('COMPLIANCE_HOLD')).toThrow(UnmappedApplicationStatusError);
+  });
+
+  it('resolves ERROR (from workflow-status-service) to the error static block', () => {
+    expect(resolveScreen('ERROR')).toEqual({ kind: 'static-block', block: 'error' });
   });
 });
