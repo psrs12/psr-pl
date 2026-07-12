@@ -19,7 +19,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
 	appManagementBaseURL := requireEnv(logger, "APPLICATION_MANAGEMENT_BASE_URL")
-	port := envOrDefault("PORT", "8083")
+	port := envOrDefault("PORT", "8086")
 
 	ctx := context.Background()
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
