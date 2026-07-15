@@ -1,5 +1,7 @@
 # psr-pl
 
+[![CI](https://github.com/psrs12/psr-pl/actions/workflows/ci.yml/badge.svg)](https://github.com/psrs12/psr-pl/actions/workflows/ci.yml)
+
 Personal loan acquisition platform, rebuilt on Go/DynamoDB/Fargate/EventBridge per this repo's [CLAUDE.md](CLAUDE.md) enterprise Go standards. Corporate-directed rewrite — service boundaries and applicant-facing behavior are preserved from the reference implementation (`psr-personal-loan`, a separate, unmodified repository used only as functional source of truth); the tech stack and internal architecture are deliberately replaced.
 
 See `openspec/changes/rebuild-platform-go/` for the full proposal, design decisions, and specs behind this rewrite.
