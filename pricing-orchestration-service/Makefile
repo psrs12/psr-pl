@@ -71,10 +71,13 @@ statemachine-create: stepfunctions-up
 statemachine-up: statemachine-create
 
 ## run-happy-path: execute the HappyPath mocked test case (soft pull 720,
-## hard pull 710 -> APPROVED) and print the final status/output.
+## hard pull 710 -> APPROVED) and print the final status/output. Mocking is
+## keyed off the '#<TestCase>' suffix on --state-machine-arn (per AWS's
+## mocked-service-integrations docs) -- NOT off --name, which only needs to
+## be unique per run so repeat invocations don't collide.
 run-happy-path: statemachine-up
 	@ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions list-state-machines --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --query "stateMachines[?name=='$(STATE_MACHINE_NAME)'].stateMachineArn" --output text); \
-	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$$ARN" --name "HappyPath" --input '{"applicationId":"app-happy","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000}' --query executionArn --output text); \
+	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$${ARN}#HappyPath" --name "HappyPath-$$(date +%s)" --input '{"applicationId":"app-happy","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000}' --query executionArn --output text); \
 	sleep 1; \
 	$(AWS_LOCAL_ENV) aws stepfunctions describe-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --execution-arn "$$EXEC_ARN"
 
@@ -82,7 +85,7 @@ run-happy-path: statemachine-up
 ## 550, hard pull 540 -> DECLINED) and print the final status/output.
 run-declined-path: statemachine-up
 	@ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions list-state-machines --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --query "stateMachines[?name=='$(STATE_MACHINE_NAME)'].stateMachineArn" --output text); \
-	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$$ARN" --name "DeclinedPath" --input '{"applicationId":"app-declined","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000}' --query executionArn --output text); \
+	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$${ARN}#DeclinedPath" --name "DeclinedPath-$$(date +%s)" --input '{"applicationId":"app-declined","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000}' --query executionArn --output text); \
 	sleep 1; \
 	$(AWS_LOCAL_ENV) aws stepfunctions describe-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --execution-arn "$$EXEC_ARN"
 
