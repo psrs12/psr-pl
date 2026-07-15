@@ -47,10 +47,10 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	offer, err := h.service.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			h.writeError(w, http.StatusNotFound, err)
+			h.writeError(w, r, http.StatusNotFound, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -68,7 +68,7 @@ type presentRequestBody struct {
 func (h *Handler) present(w http.ResponseWriter, r *http.Request) {
 	var body presentRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -80,7 +80,7 @@ func (h *Handler) present(w http.ResponseWriter, r *http.Request) {
 		TaskToken:     body.TaskToken,
 	}
 	if err := h.service.Present(r.Context(), offer); err != nil {
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 
 	var body confirmRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -108,11 +108,11 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFound):
-			h.writeError(w, http.StatusNotFound, err)
+			h.writeError(w, r, http.StatusNotFound, err)
 		case errors.Is(err, ErrAlreadyConfirmed):
-			h.writeError(w, http.StatusConflict, err)
+			h.writeError(w, r, http.StatusConflict, err)
 		default:
-			h.writeError(w, http.StatusInternalServerError, err)
+			h.writeError(w, r, http.StatusInternalServerError, err)
 		}
 		return
 	}
@@ -126,16 +126,16 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) authenticated(w http.ResponseWriter, r *http.Request, applicationID string) bool {
 	token := bearerToken(r)
 	if token == "" {
-		h.writeError(w, http.StatusUnauthorized, errors.New("missing session token"))
+		h.writeError(w, r, http.StatusUnauthorized, errors.New("missing session token"))
 		return false
 	}
 	valid, err := h.sessions.ValidateSession(r.Context(), token, applicationID)
 	if err != nil {
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !valid {
-		h.writeError(w, http.StatusUnauthorized, errors.New("invalid session"))
+		h.writeError(w, r, http.StatusUnauthorized, errors.New("invalid session"))
 		return false
 	}
 	return true
@@ -150,8 +150,8 @@ func bearerToken(r *http.Request) string {
 	return strings.TrimPrefix(auth, prefix)
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, status int, err error) {
-	h.logger.Error("request failed", "status", status, "error", err)
+func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, err error) {
+	LoggerFrom(r.Context(), h.logger).Error("request failed", "status", status, "error", err)
 	writeJSON(w, status, map[string]string{"message": strings.TrimSpace(err.Error())})
 }
 

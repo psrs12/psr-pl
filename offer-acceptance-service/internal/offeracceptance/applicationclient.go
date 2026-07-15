@@ -39,6 +39,9 @@ func (c *applicationManagementClient) UpdateStatus(ctx context.Context, applicat
 		return fmt.Errorf("building status update request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if id := requestIDFromContext(ctx); id != "" {
+		req.Header.Set(RequestIDHeader, id)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

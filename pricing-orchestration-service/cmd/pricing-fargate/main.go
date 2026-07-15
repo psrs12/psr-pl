@@ -11,7 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -20,9 +20,12 @@ import (
 	"pricing-orchestration-service/internal/pricing"
 )
 
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 func main() {
 	if err := run(); err != nil {
-		log.Fatal(err)
+		logger.Error("pricing-fargate failed", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -43,7 +46,12 @@ func run() error {
 	if err := json.Unmarshal([]byte(taskInput), &state); err != nil {
 		return sendFailure(ctx, client, taskToken, "InvalidInput", err.Error())
 	}
+
+	log := logger.With("requestId", state.RequestID, "applicationId", state.ApplicationID)
+	log.Info("pricing-fargate invoked")
+
 	if state.SoftPull == nil {
+		log.Error("pricing-fargate failed", "error", "missing soft pull")
 		return sendFailure(ctx, client, taskToken, "MissingSoftPull", "pricing requires a completed soft pull")
 	}
 
@@ -61,6 +69,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("sending task success: %w", err)
 	}
+	log.Info("pricing-fargate succeeded")
 	return nil
 }
 

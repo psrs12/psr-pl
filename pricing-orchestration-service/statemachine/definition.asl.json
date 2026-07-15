@@ -47,7 +47,8 @@
         "Payload": {
           "taskToken.$": "$$.Task.Token",
           "applicationId.$": "$.applicationId",
-          "pricedOffer.$": "$.pricedOffer"
+          "pricedOffer.$": "$.pricedOffer",
+          "requestId.$": "$.requestId"
         }
       },
       "ResultPath": "$.offerSelection",

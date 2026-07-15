@@ -71,6 +71,9 @@ func (c *offerLogClient) ValidateOffer(ctx context.Context, reference string) (*
 		return nil, Applicant{}, fmt.Errorf("building offer validation request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if id := requestIDFromContext(ctx); id != "" {
+		req.Header.Set(RequestIDHeader, id)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -133,6 +136,9 @@ func (c *offerLogClient) updateStatus(ctx context.Context, intakeID, status stri
 		return fmt.Errorf("building offer status request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if id := requestIDFromContext(ctx); id != "" {
+		req.Header.Set(RequestIDHeader, id)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

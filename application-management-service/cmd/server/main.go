@@ -61,7 +61,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           withCORS(mux, envOrDefault("CORS_ALLOWED_ORIGIN", "*")),
+		Handler:           application.WithRequestID(withCORS(mux, envOrDefault("CORS_ALLOWED_ORIGIN", "*"))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

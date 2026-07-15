@@ -105,6 +105,7 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (*Application, 
 		RequestedTermMonths:     app.Applicant.RequestedTermMonths,
 		AnnualIncomeCents:       app.Applicant.AnnualIncomeCents,
 		MonthlyObligationsCents: app.Applicant.MonthlyObligationsCents,
+		RequestID:               requestIDFromContext(ctx),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("starting pricing workflow: %w", err)

@@ -77,7 +77,7 @@ statemachine-up: statemachine-create
 ## be unique per run so repeat invocations don't collide.
 run-happy-path: statemachine-up
 	@ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions list-state-machines --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --query "stateMachines[?name=='$(STATE_MACHINE_NAME)'].stateMachineArn" --output text); \
-	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$${ARN}#HappyPath" --name "HappyPath-$$(date +%s)" --input '{"applicationId":"app-happy","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000}' --query executionArn --output text); \
+	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$${ARN}#HappyPath" --name "HappyPath-$$(date +%s)" --input '{"applicationId":"app-happy","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000,"requestId":"test-happy-path"}' --query executionArn --output text); \
 	sleep 1; \
 	$(AWS_LOCAL_ENV) aws stepfunctions describe-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --execution-arn "$$EXEC_ARN"
 
@@ -85,7 +85,7 @@ run-happy-path: statemachine-up
 ## 550, hard pull 540 -> DECLINED) and print the final status/output.
 run-declined-path: statemachine-up
 	@ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions list-state-machines --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --query "stateMachines[?name=='$(STATE_MACHINE_NAME)'].stateMachineArn" --output text); \
-	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$${ARN}#DeclinedPath" --name "DeclinedPath-$$(date +%s)" --input '{"applicationId":"app-declined","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000}' --query executionArn --output text); \
+	EXEC_ARN=$$($(AWS_LOCAL_ENV) aws stepfunctions start-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --state-machine-arn "$${ARN}#DeclinedPath" --name "DeclinedPath-$$(date +%s)" --input '{"applicationId":"app-declined","requestedAmountCents":1500000,"requestedTermMonths":60,"annualIncomeCents":8500000,"monthlyObligationsCents":30000,"requestId":"test-declined-path"}' --query executionArn --output text); \
 	sleep 1; \
 	$(AWS_LOCAL_ENV) aws stepfunctions describe-execution --endpoint-url $(STEPFUNCTIONS_ENDPOINT) --execution-arn "$$EXEC_ARN"
 

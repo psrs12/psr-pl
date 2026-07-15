@@ -39,7 +39,7 @@ func (h *Handler) esign(w http.ResponseWriter, r *http.Request) {
 
 	var body esignRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -47,11 +47,11 @@ func (h *Handler) esign(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrMissingRequiredDeclarations):
-			h.writeError(w, http.StatusUnprocessableEntity, err)
+			h.writeError(w, r, http.StatusUnprocessableEntity, err)
 		case errors.Is(err, ErrAlreadySigned):
-			h.writeError(w, http.StatusConflict, err)
+			h.writeError(w, r, http.StatusConflict, err)
 		default:
-			h.writeError(w, http.StatusInternalServerError, err)
+			h.writeError(w, r, http.StatusInternalServerError, err)
 		}
 		return
 	}
@@ -59,8 +59,8 @@ func (h *Handler) esign(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, record)
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, status int, err error) {
-	h.logger.Error("request failed", "status", status, "error", err)
+func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, err error) {
+	LoggerFrom(r.Context(), h.logger).Error("request failed", "status", status, "error", err)
 	writeJSON(w, status, map[string]string{"message": strings.TrimSpace(err.Error())})
 }
 

@@ -28,25 +28,25 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 
 	token := bearerToken(r)
 	if token == "" {
-		h.writeError(w, http.StatusUnauthorized, errors.New("missing session token"))
+		h.writeError(w, r, http.StatusUnauthorized, errors.New("missing session token"))
 		return
 	}
 
 	status, err := h.service.GetStatus(r.Context(), token, id)
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) {
-			h.writeError(w, http.StatusUnauthorized, err)
+			h.writeError(w, r, http.StatusUnauthorized, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, status int, err error) {
-	h.logger.Error("request failed", "status", status, "error", err)
+func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, err error) {
+	LoggerFrom(r.Context(), h.logger).Error("request failed", "status", status, "error", err)
 	writeJSON(w, status, map[string]string{"message": strings.TrimSpace(err.Error())})
 }
 

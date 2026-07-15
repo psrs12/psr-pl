@@ -27,6 +27,10 @@ type WorkflowInput struct {
 	RequestedTermMonths     int    `json:"requestedTermMonths"`
 	AnnualIncomeCents       int64  `json:"annualIncomeCents"`
 	MonthlyObligationsCents int64  `json:"monthlyObligationsCents"`
+	// RequestID is the submit request's X-Request-Id, carried through so the
+	// whole workflow execution (and every Lambda/Fargate step it invokes)
+	// can be traced back to the original HTTP request that started it.
+	RequestID string `json:"requestId,omitempty"`
 }
 
 type sfnWorkflowStarter struct {

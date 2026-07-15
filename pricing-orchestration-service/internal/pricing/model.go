@@ -12,6 +12,9 @@ type WorkflowInput struct {
 	RequestedTermMonths     int    `json:"requestedTermMonths"`
 	AnnualIncomeCents       int64  `json:"annualIncomeCents"`
 	MonthlyObligationsCents int64  `json:"monthlyObligationsCents"`
+	// RequestID traces this execution back to the HTTP request that
+	// started it (see application-management-service's WorkflowInput).
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // CreditSummary is the simulated output of a credit bureau pull. There is

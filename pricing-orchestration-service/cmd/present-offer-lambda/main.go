@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -20,12 +21,21 @@ import (
 	"pricing-orchestration-service/internal/pricing"
 )
 
-var pricingOrchestrationBaseURL = os.Getenv("PRICING_ORCHESTRATION_BASE_URL")
+// requestIDHeader matches the header name application-management-service and
+// pricing-orchestration-service's REST handlers use, so a requestId can be
+// grepped across every service's logs for one request.
+const requestIDHeader = "X-Request-Id"
+
+var (
+	pricingOrchestrationBaseURL = os.Getenv("PRICING_ORCHESTRATION_BASE_URL")
+	logger                      = slog.New(slog.NewJSONHandler(os.Stdout, nil))
+)
 
 type input struct {
 	TaskToken     string              `json:"taskToken"`
 	ApplicationID string              `json:"applicationId"`
 	PricedOffer   pricing.PricedOffer `json:"pricedOffer"`
+	RequestID     string              `json:"requestId"`
 }
 
 type presentRequest struct {
@@ -37,8 +47,13 @@ type presentRequest struct {
 }
 
 func handle(ctx context.Context, in input) (map[string]string, error) {
+	log := logger.With("requestId", in.RequestID, "applicationId", in.ApplicationID)
+	log.Info("present-offer-lambda invoked")
+
 	if pricingOrchestrationBaseURL == "" {
-		return nil, fmt.Errorf("PRICING_ORCHESTRATION_BASE_URL is not configured")
+		err := fmt.Errorf("PRICING_ORCHESTRATION_BASE_URL is not configured")
+		log.Error("present-offer-lambda failed", "error", err)
+		return nil, err
 	}
 
 	payload, err := json.Marshal(presentRequest{
@@ -58,16 +73,23 @@ func handle(ctx context.Context, in input) (map[string]string, error) {
 		return nil, fmt.Errorf("building present-offer request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if in.RequestID != "" {
+		req.Header.Set(requestIDHeader, in.RequestID)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		log.Error("present-offer-lambda failed", "error", err)
 		return nil, fmt.Errorf("calling pricing-orchestration-service: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("pricing-orchestration-service rejected present-offer: %d", resp.StatusCode)
+		err := fmt.Errorf("pricing-orchestration-service rejected present-offer: %d", resp.StatusCode)
+		log.Error("present-offer-lambda failed", "error", err)
+		return nil, err
 	}
+	log.Info("present-offer-lambda succeeded")
 	return map[string]string{"applicationId": in.ApplicationID}, nil
 }
 

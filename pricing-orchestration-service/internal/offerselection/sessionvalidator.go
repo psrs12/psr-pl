@@ -40,6 +40,9 @@ func (c *applicationManagementSessionValidator) ValidateSession(ctx context.Cont
 		return false, fmt.Errorf("building session validation request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if id := requestIDFromContext(ctx); id != "" {
+		req.Header.Set(RequestIDHeader, id)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

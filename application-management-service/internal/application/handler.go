@@ -58,17 +58,17 @@ type validateInvitationResponseBody struct {
 func (h *Handler) validateInvitation(w http.ResponseWriter, r *http.Request) {
 	var body validateInvitationRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
 	offer, prefill, degraded, err := h.service.ResolveInvitation(r.Context(), body.Token)
 	if err != nil {
-		h.writeError(w, http.StatusBadGateway, err)
+		h.writeError(w, r, http.StatusBadGateway, err)
 		return
 	}
 	if degraded {
-		h.writeError(w, http.StatusNotFound, errors.New("invitation is invalid, expired, or already used"))
+		h.writeError(w, r, http.StatusNotFound, errors.New("invitation is invalid, expired, or already used"))
 		return
 	}
 
@@ -111,7 +111,7 @@ type submitRequestBody struct {
 func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	var body submitRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -157,10 +157,10 @@ func (h *Handler) submit(w http.ResponseWriter, r *http.Request) {
 	app, err := h.service.Submit(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, ErrIncompleteApplication) {
-			h.writeError(w, http.StatusUnprocessableEntity, err)
+			h.writeError(w, r, http.StatusUnprocessableEntity, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -181,17 +181,17 @@ type loginResponseBody struct {
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	var body loginRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
 	token, err := h.service.Login(r.Context(), body.ApplicationID, body.Last4SSN, body.DateOfBirth)
 	if err != nil {
 		if errors.Is(err, ErrLoginFailed) {
-			h.writeError(w, http.StatusUnauthorized, err)
+			h.writeError(w, r, http.StatusUnauthorized, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -203,21 +203,21 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 
 	token := bearerToken(r)
 	if token == "" {
-		h.writeError(w, http.StatusUnauthorized, errors.New("missing session token"))
+		h.writeError(w, r, http.StatusUnauthorized, errors.New("missing session token"))
 		return
 	}
 	if err := h.service.Authenticate(r.Context(), token, id); err != nil {
-		h.writeError(w, http.StatusUnauthorized, err)
+		h.writeError(w, r, http.StatusUnauthorized, err)
 		return
 	}
 
 	app, err := h.service.Get(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			h.writeError(w, http.StatusNotFound, err)
+			h.writeError(w, r, http.StatusNotFound, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -236,17 +236,17 @@ func (h *Handler) updateStatus(w http.ResponseWriter, r *http.Request) {
 
 	var body updateStatusRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
 	app, err := h.service.UpdateStatus(r.Context(), id, body.Status)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			h.writeError(w, http.StatusNotFound, err)
+			h.writeError(w, r, http.StatusNotFound, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -259,10 +259,10 @@ func (h *Handler) executionARN(w http.ResponseWriter, r *http.Request) {
 	arn, err := h.service.ExecutionARN(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			h.writeError(w, http.StatusNotFound, err)
+			h.writeError(w, r, http.StatusNotFound, err)
 			return
 		}
-		h.writeError(w, http.StatusInternalServerError, err)
+		h.writeError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -277,7 +277,7 @@ type validateSessionRequestBody struct {
 func (h *Handler) validateSession(w http.ResponseWriter, r *http.Request) {
 	var body validateSessionRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		h.writeError(w, http.StatusBadRequest, err)
+		h.writeError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -285,8 +285,8 @@ func (h *Handler) validateSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"valid": valid})
 }
 
-func (h *Handler) writeError(w http.ResponseWriter, status int, err error) {
-	h.logger.Error("request failed", "status", status, "error", err)
+func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, err error) {
+	LoggerFrom(r.Context(), h.logger).Error("request failed", "status", status, "error", err)
 	writeJSON(w, status, map[string]string{"message": strings.TrimSpace(err.Error())})
 }
 
