@@ -10,6 +10,9 @@ dist/
 *.exe
 *.test
 
+# make run-all output (see root Makefile)
+/logs/
+
 # Claude Code local (personal, not shared project config)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
