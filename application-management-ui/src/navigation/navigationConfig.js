@@ -82,6 +82,7 @@ export const NAVIGATION_CONFIG = {
     apiBaseUrlKey: 'document',
     attributes: ['application-id', 'api-base-url', 'session-token'],
     containerWidth: 800,
+    completionEvent: 'documents-submitted',
   },
 
   UNDERWRITING: UNDER_REVIEW_SPINNER('Under Review by Our Team', 'Your application is being reviewed by our underwriting team.\nYou will be notified once a decision has been made.'),

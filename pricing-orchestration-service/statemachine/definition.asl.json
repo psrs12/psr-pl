@@ -35,11 +35,11 @@
           ]
         }
       },
-      "ResultPath": "$.pricedOffer",
+      "ResultPath": "$.pricedOffers",
       "Next": "AwaitOfferSelection"
     },
     "AwaitOfferSelection": {
-      "Comment": "Pauses until the applicant selects the offer and gives hard-pull consent, via pricing-orchestration-service's selected-offer API (POST .../confirm calls SendTaskSuccess with this task's token) -- not resumed by this Lambda itself.",
+      "Comment": "Pauses until the applicant selects one of the offers and gives hard-pull consent, via pricing-orchestration-service's selected-offer API (POST .../confirm calls SendTaskSuccess with this task's token) -- not resumed by this Lambda itself.",
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
       "Parameters": {
@@ -47,7 +47,7 @@
         "Payload": {
           "taskToken.$": "$$.Task.Token",
           "applicationId.$": "$.applicationId",
-          "pricedOffer.$": "$.pricedOffer",
+          "pricedOffers.$": "$.pricedOffers",
           "requestId.$": "$.requestId"
         }
       },

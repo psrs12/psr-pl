@@ -36,10 +36,18 @@ func forRunningState(applicationID, currentState string) WorkflowStatus {
 	}
 }
 
-// forOutcome translates the terminal decision outcome (from the
-// execution's final output — see pricing.Decision) into a WorkflowStatus.
-func forOutcome(applicationID, outcome string) WorkflowStatus {
-	switch outcome {
+// forApplicationStatus translates application-management-service's live
+// status into a WorkflowStatus. Called once the linked Step Functions
+// execution has gone terminal: the execution's own decision outcome never
+// changes after that point, but the application keeps advancing past it
+// (e-sign, documents, funding) in application-management-service's own
+// record, which is the single source of truth from here on -- trusting
+// only the frozen execution outcome would make this endpoint report
+// "APPROVED" forever, even after the applicant e-signs and finishes
+// documents. An unrecognized status still returns something reasonable
+// (forError) rather than failing the request.
+func forApplicationStatus(applicationID, status string) WorkflowStatus {
+	switch status {
 	case "APPROVED":
 		return WorkflowStatus{
 			ApplicationID: applicationID,
@@ -62,6 +70,46 @@ func forOutcome(applicationID, outcome string) WorkflowStatus {
 			Status:        StatusReferred,
 			NextSteps: []NextStep{
 				{Action: "WAIT", Description: "Your application requires manual review by our underwriting team."},
+			},
+		}
+	case "DOCUMENTS_REQUIRED":
+		return WorkflowStatus{
+			ApplicationID: applicationID,
+			Status:        StatusDocumentsRequired,
+			NextSteps: []NextStep{
+				{Action: "UPLOAD_DOCUMENTS", Description: "Upload the required documents to continue your application."},
+			},
+		}
+	case "OFFER_ACCEPTED":
+		return WorkflowStatus{
+			ApplicationID: applicationID,
+			Status:        StatusOfferAccepted,
+			NextSteps: []NextStep{
+				{Action: "WAIT", Description: "We are completing final verification and collecting your disbursement details before your loan can be funded."},
+			},
+		}
+	case "FUNDING_PENDING":
+		return WorkflowStatus{
+			ApplicationID: applicationID,
+			Status:        StatusFundingPending,
+			NextSteps: []NextStep{
+				{Action: "WAIT", Description: "Your loan funds are being prepared and will be disbursed shortly."},
+			},
+		}
+	case "FUNDED":
+		return WorkflowStatus{
+			ApplicationID: applicationID,
+			Status:        StatusFunded,
+			NextSteps: []NextStep{
+				{Action: "NONE", Description: "Your loan has been funded. The funds have been sent to your nominated account."},
+			},
+		}
+	case "COMPLETED":
+		return WorkflowStatus{
+			ApplicationID: applicationID,
+			Status:        StatusCompleted,
+			NextSteps: []NextStep{
+				{Action: "NONE", Description: "Your loan application is complete. Thank you for choosing us."},
 			},
 		}
 	default:

@@ -74,6 +74,11 @@ export default function StatusPage() {
     setTimeout(fetchStatus, 2000);
   }, []);
 
+  const handleDocumentsSubmitted = useCallback(() => {
+    if (pollRef.current) clearTimeout(pollRef.current);
+    setTimeout(fetchStatus, 2000);
+  }, []);
+
   if (loadError && !application) {
     return (
       <div className="page-shell">
@@ -117,7 +122,11 @@ export default function StatusPage() {
     application,
     applicationId,
     scripts: { pricingOffersUiJs: pricingScript, documentManagementUiJs: documentScript, offerAcceptanceUiJs: offerAcceptanceScript },
-    eventHandlers: { 'offer-confirmed': handleOfferConfirmed, 'offer-accepted': handleOfferAccepted },
+    eventHandlers: {
+      'offer-confirmed': handleOfferConfirmed,
+      'offer-accepted': handleOfferAccepted,
+      'documents-submitted': handleDocumentsSubmitted,
+    },
   };
 
   const Screen = descriptor ? SCREEN_REGISTRY[descriptor.kind] : null;

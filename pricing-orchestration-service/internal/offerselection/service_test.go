@@ -4,7 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"pricing-orchestration-service/internal/pricing"
 )
+
+var testOffers = []pricing.OfferOption{
+	{ID: "standard", Label: "Requested Terms", PricedOffer: pricing.PricedOffer{AmountCents: 1000000, TermMonths: 60, APRPercentage: 11.9}},
+}
 
 type fakeRepository struct {
 	offers map[string]*SelectedOffer
@@ -39,7 +45,7 @@ type fakeWorkflowResumer struct {
 	failWith     error
 }
 
-func (f *fakeWorkflowResumer) Resume(ctx context.Context, taskToken string, consentGiven bool) error {
+func (f *fakeWorkflowResumer) Resume(ctx context.Context, taskToken string, consentGiven bool, selected pricing.OfferOption) error {
 	if f.failWith != nil {
 		return f.failWith
 	}
@@ -55,10 +61,10 @@ func TestConfirmResumesWorkflowWithConsent(t *testing.T) {
 	svc := NewService(repo, resumer)
 
 	_ = svc.Present(context.Background(), SelectedOffer{
-		ApplicationID: "app-1", AmountCents: 1000000, TermMonths: 60, APRPercentage: 11.9, TaskToken: "token-abc",
+		ApplicationID: "app-1", Offers: testOffers, TaskToken: "token-abc",
 	})
 
-	offer, err := svc.Confirm(context.Background(), "app-1", true)
+	offer, err := svc.Confirm(context.Background(), "app-1", "standard", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,9 +81,9 @@ func TestConfirmPropagatesDeclinedConsent(t *testing.T) {
 	resumer := &fakeWorkflowResumer{}
 	svc := NewService(repo, resumer)
 
-	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-2", TaskToken: "token-xyz"})
+	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-2", Offers: testOffers, TaskToken: "token-xyz"})
 
-	_, err := svc.Confirm(context.Background(), "app-2", false)
+	_, err := svc.Confirm(context.Background(), "app-2", "standard", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,10 +97,10 @@ func TestConfirmRejectsAlreadyConfirmed(t *testing.T) {
 	resumer := &fakeWorkflowResumer{}
 	svc := NewService(repo, resumer)
 
-	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-3", TaskToken: "token-1"})
-	_, _ = svc.Confirm(context.Background(), "app-3", true)
+	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-3", Offers: testOffers, TaskToken: "token-1"})
+	_, _ = svc.Confirm(context.Background(), "app-3", "standard", true)
 
-	_, err := svc.Confirm(context.Background(), "app-3", true)
+	_, err := svc.Confirm(context.Background(), "app-3", "standard", true)
 	if !errors.Is(err, ErrAlreadyConfirmed) {
 		t.Errorf("expected ErrAlreadyConfirmed, got %v", err)
 	}
@@ -105,9 +111,9 @@ func TestConfirmLeavesRecordRetryableWhenResumeFails(t *testing.T) {
 	resumer := &fakeWorkflowResumer{failWith: errors.New("step functions unavailable")}
 	svc := NewService(repo, resumer)
 
-	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-4", TaskToken: "token-4"})
+	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-4", Offers: testOffers, TaskToken: "token-4"})
 
-	_, err := svc.Confirm(context.Background(), "app-4", true)
+	_, err := svc.Confirm(context.Background(), "app-4", "standard", true)
 	if err == nil {
 		t.Fatal("expected an error when the workflow resume fails")
 	}
@@ -123,7 +129,7 @@ func TestConfirmLeavesRecordRetryableWhenResumeFails(t *testing.T) {
 	// A retry with a working resumer should now succeed.
 	repo2 := repo
 	svc2 := NewService(repo2, &fakeWorkflowResumer{})
-	confirmed, err := svc2.Confirm(context.Background(), "app-4", true)
+	confirmed, err := svc2.Confirm(context.Background(), "app-4", "standard", true)
 	if err != nil {
 		t.Fatalf("expected retry to succeed, got %v", err)
 	}
@@ -135,8 +141,20 @@ func TestConfirmLeavesRecordRetryableWhenResumeFails(t *testing.T) {
 func TestConfirmUnknownApplicationReturnsNotFound(t *testing.T) {
 	svc := NewService(newFakeRepository(), &fakeWorkflowResumer{})
 
-	_, err := svc.Confirm(context.Background(), "does-not-exist", true)
+	_, err := svc.Confirm(context.Background(), "does-not-exist", "standard", true)
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestConfirmRejectsUnknownOfferID(t *testing.T) {
+	repo := newFakeRepository()
+	svc := NewService(repo, &fakeWorkflowResumer{})
+
+	_ = svc.Present(context.Background(), SelectedOffer{ApplicationID: "app-5", Offers: testOffers, TaskToken: "token-5"})
+
+	_, err := svc.Confirm(context.Background(), "app-5", "not-a-real-offer-id", true)
+	if !errors.Is(err, ErrOfferNotFound) {
+		t.Errorf("expected ErrOfferNotFound, got %v", err)
 	}
 }

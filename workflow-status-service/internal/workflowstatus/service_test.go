@@ -9,8 +9,9 @@ import (
 )
 
 type fakeApplicationClient struct {
-	executionArn string
-	sessionValid bool
+	executionArn  string
+	sessionValid  bool
+	currentStatus string
 }
 
 func (f *fakeApplicationClient) ExecutionARN(ctx context.Context, applicationID string) (string, error) {
@@ -19,6 +20,10 @@ func (f *fakeApplicationClient) ExecutionARN(ctx context.Context, applicationID 
 
 func (f *fakeApplicationClient) ValidateSession(ctx context.Context, token, applicationID string) (bool, error) {
 	return f.sessionValid, nil
+}
+
+func (f *fakeApplicationClient) CurrentStatus(ctx context.Context, applicationID string) (string, error) {
+	return f.currentStatus, nil
 }
 
 type fakeExecutionReader struct {
@@ -67,7 +72,7 @@ func TestGetStatusRunningStateTranslatesToNextSteps(t *testing.T) {
 
 func TestGetStatusApprovedOutcome(t *testing.T) {
 	svc := NewService(
-		&fakeApplicationClient{sessionValid: true, executionArn: "arn:exec:1"},
+		&fakeApplicationClient{sessionValid: true, executionArn: "arn:exec:1", currentStatus: "APPROVED"},
 		&fakeExecutionReader{status: types.ExecutionStatusSucceeded, outcome: "APPROVED"},
 	)
 
@@ -80,6 +85,26 @@ func TestGetStatusApprovedOutcome(t *testing.T) {
 	}
 	if status.NextSteps[0].Action != "SELECT_OFFER" {
 		t.Errorf("NextSteps[0].Action = %s, want SELECT_OFFER", status.NextSteps[0].Action)
+	}
+}
+
+// TestGetStatusPostTerminalStatusReflectsLiveApplicationRecord covers the
+// bug found via live browser testing: once the execution succeeds, the
+// applicant keeps advancing (e-sign, documents) in application-management-
+// service's own record, but the execution's decision outcome is frozen at
+// APPROVED forever. This must track the live status, not the outcome.
+func TestGetStatusPostTerminalStatusReflectsLiveApplicationRecord(t *testing.T) {
+	svc := NewService(
+		&fakeApplicationClient{sessionValid: true, executionArn: "arn:exec:1", currentStatus: "DOCUMENTS_REQUIRED"},
+		&fakeExecutionReader{status: types.ExecutionStatusSucceeded, outcome: "APPROVED"},
+	)
+
+	status, err := svc.GetStatus(context.Background(), "token", "app-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status.Status != StatusDocumentsRequired {
+		t.Errorf("Status = %s, want %s (live application status, not the frozen execution outcome)", status.Status, StatusDocumentsRequired)
 	}
 }
 

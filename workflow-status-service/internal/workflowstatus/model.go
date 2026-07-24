@@ -18,6 +18,16 @@ const (
 	StatusDeclined        Status = "DECLINED"
 	StatusReferred        Status = "REFERRED"
 	StatusError           Status = "ERROR"
+
+	// Post-terminal statuses: the Step Functions execution itself has
+	// finished (decision outcome fixed), but the application keeps
+	// advancing in application-management-service's own record (e-sign,
+	// documents, funding) -- see forApplicationStatus.
+	StatusDocumentsRequired Status = "DOCUMENTS_REQUIRED"
+	StatusOfferAccepted     Status = "OFFER_ACCEPTED"
+	StatusFundingPending    Status = "FUNDING_PENDING"
+	StatusFunded            Status = "FUNDED"
+	StatusCompleted         Status = "COMPLETED"
 )
 
 type NextStep struct {

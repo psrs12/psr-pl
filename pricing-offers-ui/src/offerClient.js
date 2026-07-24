@@ -3,16 +3,18 @@ export async function fetchSelectedOffer(apiBaseUrl, applicationId, sessionToken
     headers: { Authorization: `Bearer ${sessionToken}` },
   });
   if (!res.ok) {
-    throw new Error(`Failed to load offer (HTTP ${res.status})`);
+    const err = new Error(`Failed to load offer (HTTP ${res.status})`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
 
-export async function confirmSelectedOffer(apiBaseUrl, applicationId, sessionToken, consentGiven) {
+export async function confirmSelectedOffer(apiBaseUrl, applicationId, sessionToken, selectedOfferId, consentGiven) {
   const res = await fetch(`${apiBaseUrl}/applications/${applicationId}/selected-offer/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${sessionToken}` },
-    body: JSON.stringify({ consentGiven }),
+    body: JSON.stringify({ selectedOfferId, consentGiven }),
   });
   if (!res.ok) {
     throw new Error(`Failed to confirm offer (HTTP ${res.status})`);

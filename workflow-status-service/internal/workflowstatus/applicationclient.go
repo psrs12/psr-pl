@@ -17,6 +17,7 @@ import (
 type ApplicationClient interface {
 	ExecutionARN(ctx context.Context, applicationID string) (string, error)
 	ValidateSession(ctx context.Context, token, applicationID string) (bool, error)
+	CurrentStatus(ctx context.Context, applicationID string) (string, error)
 }
 
 type applicationManagementClient struct {
@@ -57,6 +58,37 @@ func (c *applicationManagementClient) ExecutionARN(ctx context.Context, applicat
 		return "", fmt.Errorf("decoding execution lookup response: %w", err)
 	}
 	return body.ExecutionARN, nil
+}
+
+// CurrentStatus fetches application-management-service's live status for
+// the application -- the authoritative value once a Step Functions
+// execution has gone terminal (see comment on the service-layer caller).
+func (c *applicationManagementClient) CurrentStatus(ctx context.Context, applicationID string) (string, error) {
+	url := fmt.Sprintf("%s/internal/applications/%s/status", c.baseURL, applicationID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("building status lookup request: %w", err)
+	}
+	if id := requestIDFromContext(ctx); id != "" {
+		req.Header.Set(RequestIDHeader, id)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("calling application-management-service: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("application-management-service returned status %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", fmt.Errorf("decoding status lookup response: %w", err)
+	}
+	return body.Status, nil
 }
 
 func (c *applicationManagementClient) ValidateSession(ctx context.Context, token, applicationID string) (bool, error) {

@@ -55,9 +55,9 @@ func run() error {
 		return sendFailure(ctx, client, taskToken, "MissingSoftPull", "pricing requires a completed soft pull")
 	}
 
-	offer := pricing.Price(state.WorkflowInput, *state.SoftPull)
+	offers := pricing.PriceOptions(state.WorkflowInput, *state.SoftPull)
 
-	output, err := json.Marshal(offer)
+	output, err := json.Marshal(offers)
 	if err != nil {
 		return sendFailure(ctx, client, taskToken, "EncodingError", err.Error())
 	}

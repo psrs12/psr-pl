@@ -36,6 +36,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	// network/IAM layer instead. Called by pricing-orchestration-service's
 	// Lambda steps and by workflow-status-service, never by the browser.
 	mux.HandleFunc("PUT /internal/applications/{id}/status", h.updateStatus)
+	mux.HandleFunc("GET /internal/applications/{id}/status", h.currentStatus)
 	mux.HandleFunc("GET /internal/applications/{id}/execution", h.executionARN)
 	mux.HandleFunc("POST /internal/sessions/validate", h.validateSession)
 }
@@ -251,6 +252,30 @@ func (h *Handler) updateStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, app)
+}
+
+// currentStatus is internal-only (no session-token auth, secured at the
+// network/IAM layer), called by workflow-status-service. Unlike the
+// applicant-facing GET .../applications/{id}/status, this exists purely
+// so workflow-status-service can defer to this service's live status once
+// a Step Functions execution has gone terminal -- the execution's own
+// decision outcome never changes after that point, but the application's
+// real status keeps advancing (e-sign, documents, funding), and this
+// service's own record is the single source of truth for that.
+func (h *Handler) currentStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	app, err := h.service.Get(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			h.writeError(w, r, http.StatusNotFound, err)
+			return
+		}
+		h.writeError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": string(app.Status)})
 }
 
 func (h *Handler) executionARN(w http.ResponseWriter, r *http.Request) {

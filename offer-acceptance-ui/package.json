@@ -1,0 +1,15 @@
+{
+  "name": "offer-acceptance-ui",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0",
+    "vitest": "^2.1.0",
+    "jsdom": "^25.0.0"
+  }
+}

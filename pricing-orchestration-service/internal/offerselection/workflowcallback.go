@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
+
+	"pricing-orchestration-service/internal/pricing"
 )
 
 // WorkflowResumer is a small, consumer-owned interface: this service only
@@ -13,7 +15,7 @@ import (
 // otherwise controls one — that stays with application-management-service
 // and the state machine itself.
 type WorkflowResumer interface {
-	Resume(ctx context.Context, taskToken string, consentGiven bool) error
+	Resume(ctx context.Context, taskToken string, consentGiven bool, selected pricing.OfferOption) error
 }
 
 type sfnWorkflowResumer struct {
@@ -24,8 +26,11 @@ func NewSFNWorkflowResumer(client *sfn.Client) *sfnWorkflowResumer {
 	return &sfnWorkflowResumer{client: client}
 }
 
-func (r *sfnWorkflowResumer) Resume(ctx context.Context, taskToken string, consentGiven bool) error {
-	output, err := json.Marshal(map[string]bool{"consentGiven": consentGiven})
+func (r *sfnWorkflowResumer) Resume(ctx context.Context, taskToken string, consentGiven bool, selected pricing.OfferOption) error {
+	output, err := json.Marshal(struct {
+		ConsentGiven  bool                `json:"consentGiven"`
+		SelectedOffer pricing.OfferOption `json:"selectedOffer"`
+	}{ConsentGiven: consentGiven, SelectedOffer: selected})
 	if err != nil {
 		return fmt.Errorf("encoding resume output: %w", err)
 	}

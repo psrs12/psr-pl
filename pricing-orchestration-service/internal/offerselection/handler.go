@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"pricing-orchestration-service/internal/pricing"
 )
 
 // basePath matches application-management-ui's VITE_PRICING_API_URL
@@ -58,11 +60,9 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 type presentRequestBody struct {
-	ApplicationID string  `json:"applicationId"`
-	TaskToken     string  `json:"taskToken"`
-	AmountCents   int64   `json:"amountCents"`
-	TermMonths    int     `json:"termMonths"`
-	APRPercentage float64 `json:"aprPercentage"`
+	ApplicationID string                `json:"applicationId"`
+	TaskToken     string                `json:"taskToken"`
+	Offers        []pricing.OfferOption `json:"offers"`
 }
 
 func (h *Handler) present(w http.ResponseWriter, r *http.Request) {
@@ -74,9 +74,7 @@ func (h *Handler) present(w http.ResponseWriter, r *http.Request) {
 
 	offer := SelectedOffer{
 		ApplicationID: body.ApplicationID,
-		AmountCents:   body.AmountCents,
-		TermMonths:    body.TermMonths,
-		APRPercentage: body.APRPercentage,
+		Offers:        body.Offers,
 		TaskToken:     body.TaskToken,
 	}
 	if err := h.service.Present(r.Context(), offer); err != nil {
@@ -88,7 +86,8 @@ func (h *Handler) present(w http.ResponseWriter, r *http.Request) {
 }
 
 type confirmRequestBody struct {
-	ConsentGiven bool `json:"consentGiven"`
+	SelectedOfferID string `json:"selectedOfferId"`
+	ConsentGiven    bool   `json:"consentGiven"`
 }
 
 func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
@@ -104,13 +103,15 @@ func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offer, err := h.service.Confirm(r.Context(), id, body.ConsentGiven)
+	offer, err := h.service.Confirm(r.Context(), id, body.SelectedOfferID, body.ConsentGiven)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFound):
 			h.writeError(w, r, http.StatusNotFound, err)
 		case errors.Is(err, ErrAlreadyConfirmed):
 			h.writeError(w, r, http.StatusConflict, err)
+		case errors.Is(err, ErrOfferNotFound):
+			h.writeError(w, r, http.StatusBadRequest, err)
 		default:
 			h.writeError(w, r, http.StatusInternalServerError, err)
 		}

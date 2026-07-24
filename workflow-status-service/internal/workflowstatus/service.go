@@ -37,14 +37,22 @@ func (s *Service) GetStatus(ctx context.Context, token, applicationID string) (*
 		return nil, fmt.Errorf("looking up execution: %w", err)
 	}
 
-	status, outcome, err := s.executions.Outcome(ctx, executionArn)
+	status, _, err := s.executions.Outcome(ctx, executionArn)
 	if err != nil {
 		return nil, fmt.Errorf("reading execution outcome: %w", err)
 	}
 
 	switch status {
 	case types.ExecutionStatusSucceeded:
-		result := forOutcome(applicationID, outcome)
+		// The execution's own decision outcome is frozen once it succeeds;
+		// application-management-service's live status is what actually
+		// keeps advancing afterward (e-sign, documents, funding) — see
+		// forApplicationStatus's comment.
+		liveStatus, err := s.applications.CurrentStatus(ctx, applicationID)
+		if err != nil {
+			return nil, fmt.Errorf("reading current application status: %w", err)
+		}
+		result := forApplicationStatus(applicationID, liveStatus)
 		return &result, nil
 	case types.ExecutionStatusRunning:
 		currentState, err := s.executions.CurrentState(ctx, executionArn)

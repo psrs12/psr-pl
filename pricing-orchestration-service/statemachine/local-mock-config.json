@@ -29,13 +29,22 @@
       "0": { "Return": { "Payload": { "score": 550, "source": "SOFT_PULL" }, "StatusCode": 200 } }
     },
     "PricingApproved": {
-      "0": { "Return": { "amountCents": 1500000, "termMonths": 60, "aprPercentage": 11.9 } }
+      "0": { "Return": [
+        { "offerId": "standard", "label": "Requested Terms", "amountCents": 1500000, "termMonths": 60, "aprPercentage": 11.9 },
+        { "offerId": "lower-payment", "label": "Lower Monthly Payment", "amountCents": 1500000, "termMonths": 72, "aprPercentage": 11.9 },
+        { "offerId": "faster-payoff", "label": "Faster Payoff", "amountCents": 1500000, "termMonths": 48, "aprPercentage": 11.9 }
+      ] }
     },
     "PricingZero": {
-      "0": { "Return": { "amountCents": 0, "termMonths": 60, "aprPercentage": 24.9 } }
+      "0": { "Return": [
+        { "offerId": "standard", "label": "Requested Terms", "amountCents": 0, "termMonths": 60, "aprPercentage": 24.9 }
+      ] }
     },
     "OfferSelectionConfirmed": {
-      "0": { "Return": { "consentGiven": true } }
+      "0": { "Return": {
+        "consentGiven": true,
+        "selectedOffer": { "offerId": "standard", "label": "Requested Terms", "amountCents": 1500000, "termMonths": 60, "aprPercentage": 11.9 }
+      } }
     },
     "HardPullApproved": {
       "0": { "Return": { "Payload": { "score": 710, "source": "HARD_PULL" }, "StatusCode": 200 } }

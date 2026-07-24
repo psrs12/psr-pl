@@ -18,12 +18,12 @@ Capability spec for `pricing-orchestration-service`: soft pull, pricing, applica
 - **WHEN** an application is successfully persisted at submission
 - **THEN** a new Step Functions execution is started for that application, and its execution ARN is stored on the Application record
 
-### Requirement: Workflow input excludes applicant PII
-The payload passed to the pricing-orchestration state machine SHALL contain only the financial figures needed for pricing (requested amount, requested term, annual income, monthly obligations) and the application id. It SHALL NOT contain name, SSN, date of birth, or address.
+### Requirement: Workflow input includes applicant identity data required for bureau pulls
+The payload passed to the pricing-orchestration state machine SHALL contain the financial figures needed for pricing (requested amount, requested term, annual income, monthly obligations), the application id, and the applicant identity fields a tri-bureau/alternative-data credit pull requires: first name, last name, date of birth, SSN, and current address. (Superseded requirement, kept for history: an earlier version of this spec required the payload to exclude all applicant PII, on the assumption that pricing only needed financial figures. That assumption was wrong — soft/hard pulls against real credit bureaus and alternative-data providers require identity fields to look up a person's record at all, not just their requested loan terms.)
 
 #### Scenario: Starting an execution
 - **WHEN** `application-management-service` starts a pricing-orchestration execution
-- **THEN** the execution input contains no applicant PII fields
+- **THEN** the execution input contains the applicant's first name, last name, date of birth, SSN, and current address, in addition to the financial figures and application id
 
 ### Requirement: Sequential soft pull, pricing, offer selection, hard pull, decision
 The state machine SHALL execute soft-pull, pricing-calculation, offer-selection, hard-pull, and decision-routing in that order, with each step's output added to (not replacing) the accumulated execution data.

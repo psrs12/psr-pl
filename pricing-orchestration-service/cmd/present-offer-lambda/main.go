@@ -32,18 +32,16 @@ var (
 )
 
 type input struct {
-	TaskToken     string              `json:"taskToken"`
-	ApplicationID string              `json:"applicationId"`
-	PricedOffer   pricing.PricedOffer `json:"pricedOffer"`
-	RequestID     string              `json:"requestId"`
+	TaskToken     string                `json:"taskToken"`
+	ApplicationID string                `json:"applicationId"`
+	PricedOffers  []pricing.OfferOption `json:"pricedOffers"`
+	RequestID     string                `json:"requestId"`
 }
 
 type presentRequest struct {
-	ApplicationID string  `json:"applicationId"`
-	TaskToken     string  `json:"taskToken"`
-	AmountCents   int64   `json:"amountCents"`
-	TermMonths    int     `json:"termMonths"`
-	APRPercentage float64 `json:"aprPercentage"`
+	ApplicationID string                `json:"applicationId"`
+	TaskToken     string                `json:"taskToken"`
+	Offers        []pricing.OfferOption `json:"offers"`
 }
 
 func handle(ctx context.Context, in input) (map[string]string, error) {
@@ -59,9 +57,7 @@ func handle(ctx context.Context, in input) (map[string]string, error) {
 	payload, err := json.Marshal(presentRequest{
 		ApplicationID: in.ApplicationID,
 		TaskToken:     in.TaskToken,
-		AmountCents:   in.PricedOffer.AmountCents,
-		TermMonths:    in.PricedOffer.TermMonths,
-		APRPercentage: in.PricedOffer.APRPercentage,
+		Offers:        in.PricedOffers,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("encoding present-offer request: %w", err)

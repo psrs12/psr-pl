@@ -18,15 +18,25 @@ type WorkflowStarter interface {
 }
 
 // WorkflowInput is the payload handed to the pricing-orchestration state
-// machine. Deliberately minimal — financial figures only, no name, SSN,
-// DOB, or address, since this payload lives in Step Functions execution
-// history for the life of the execution.
+// machine. Includes the applicant identity fields (first name, last name,
+// DOB, SSN, address) a real tri-bureau/alternative-data credit pull needs
+// to identify the applicant, alongside the financial figures pricing uses
+// — see pricing-orchestration-service's own WorkflowInput and
+// rebuild-platform-go/design.md's reversed "no PII in workflow input"
+// decision. This does mean SSN-grade PII now lives in Step Functions
+// execution history for the life of the execution — an accepted,
+// documented trade-off, not an oversight.
 type WorkflowInput struct {
-	ApplicationID           string `json:"applicationId"`
-	RequestedAmountCents    int64  `json:"requestedAmountCents"`
-	RequestedTermMonths     int    `json:"requestedTermMonths"`
-	AnnualIncomeCents       int64  `json:"annualIncomeCents"`
-	MonthlyObligationsCents int64  `json:"monthlyObligationsCents"`
+	ApplicationID           string  `json:"applicationId"`
+	FirstName               string  `json:"firstName"`
+	LastName                string  `json:"lastName"`
+	DateOfBirth             string  `json:"dateOfBirth"`
+	SSN                     string  `json:"ssn"`
+	Address                 Address `json:"address"`
+	RequestedAmountCents    int64   `json:"requestedAmountCents"`
+	RequestedTermMonths     int     `json:"requestedTermMonths"`
+	AnnualIncomeCents       int64   `json:"annualIncomeCents"`
+	MonthlyObligationsCents int64   `json:"monthlyObligationsCents"`
 	// RequestID is the submit request's X-Request-Id, carried through so the
 	// whole workflow execution (and every Lambda/Fargate step it invokes)
 	// can be traced back to the original HTTP request that started it.

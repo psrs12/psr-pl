@@ -1,0 +1,959 @@
+  AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  psr-pl MiniStack deployment (ministackorg/ministack, MIT-licensed free
+  LocalStack alternative). Partial migration from an earlier LocalStack
+  attempt: LocalStack's actual license blocked ECS/ApiGatewayV2/Cloud Map/
+  ELBv2 entirely; MiniStack implements ECS for real (genuine Docker
+  container execution via ecs:RunTask) and ApiGatewayV2, but its VpcLink
+  API returns 404 (unimplemented) and its Cloud Map service records are
+  control-plane only (don't resolve as real DNS inside containers) --
+  verified directly, not assumed from docs. So: real ECS/Fargate tasks are
+  used (the state machine registers the real, unmodified
+  pricing-orchestration-service/statemachine/definition.asl.json, with
+  PricingCalculation genuinely running pricing-fargate via
+  ecs:runTask.waitForTaskToken), but service-to-service addressing and API
+  Gateway integrations still target host.docker.internal:<port> directly
+  (HTTP API v2 HTTP_PROXY, ConnectionType INTERNET, no VpcLink) rather than
+  Cloud Map DNS -- the same proven addressing pattern the prior LocalStack
+  deployment used, just now backed by real ECS instead of plain `docker
+  run`, and API Gateway v2 instead of v1. The 4 UIs are NOT hosted via S3
+  static website buckets here -- MiniStack's S3 has no website-hosting
+  mode at all (confirmed live: the s3-website.* hostname just returns a
+  plain bucket listing / NoSuchKey, not index/error document behavior).
+  They're built as nginx containers (deploy.sh) and run as plain `docker
+  run` containers on published host ports instead, still public/
+  unauthenticated, just not via S3.
+
+Parameters:
+  LambdaArtifactBucket:
+    Type: String
+    Description: Pre-existing S3 bucket (created by deploy.sh before this stack) holding the 5 Lambda zips.
+  ImageTag:
+    Type: String
+    Default: latest
+  AppMgmtHostPort:
+    Type: Number
+    Default: 8081
+  OfferlogMockHostPort:
+    Type: Number
+    Default: 9090
+  PricingHostPort:
+    Type: Number
+    Default: 8082
+  WorkflowHostPort:
+    Type: Number
+    Default: 8086
+  OfferAcceptanceHostPort:
+    Type: Number
+    Default: 8085
+  DocumentHostPort:
+    Type: Number
+    Default: 8084
+
+Resources:
+
+  ############################################################
+  # Network: 1 VPC, IGW, 10 subnets (one dedicated pair per service, incl.
+  # pricing-fargate sharing pricing-orchestration-service's). Genuinely
+  # used by ECS awsvpc networking now (unlike the prior plain-Docker
+  # deployment, where these were declared but inert).
+  ############################################################
+
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{Key: Name, Value: psr-pl-vpc}]
+
+  Igw:
+    Type: AWS::EC2::InternetGateway
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: {VpcId: !Ref Vpc, InternetGatewayId: !Ref Igw}
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: {VpcId: !Ref Vpc}
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+  AppMgmtSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.1.0/24, AvailabilityZone: !Select [0, !GetAZs '']}
+  AppMgmtSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.2.0/24, AvailabilityZone: !Select [1, !GetAZs '']}
+  AppMgmtSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref AppMgmtSubnetA, RouteTableId: !Ref PublicRouteTable}
+  AppMgmtSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref AppMgmtSubnetB, RouteTableId: !Ref PublicRouteTable}
+
+  PricingSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.3.0/24, AvailabilityZone: !Select [0, !GetAZs '']}
+  PricingSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.4.0/24, AvailabilityZone: !Select [1, !GetAZs '']}
+  PricingSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PricingSubnetA, RouteTableId: !Ref PublicRouteTable}
+  PricingSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref PricingSubnetB, RouteTableId: !Ref PublicRouteTable}
+
+  WorkflowSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.5.0/24, AvailabilityZone: !Select [0, !GetAZs '']}
+  WorkflowSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.6.0/24, AvailabilityZone: !Select [1, !GetAZs '']}
+  WorkflowSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref WorkflowSubnetA, RouteTableId: !Ref PublicRouteTable}
+  WorkflowSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref WorkflowSubnetB, RouteTableId: !Ref PublicRouteTable}
+
+  OfferAcceptanceSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.7.0/24, AvailabilityZone: !Select [0, !GetAZs '']}
+  OfferAcceptanceSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.8.0/24, AvailabilityZone: !Select [1, !GetAZs '']}
+  OfferAcceptanceSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref OfferAcceptanceSubnetA, RouteTableId: !Ref PublicRouteTable}
+  OfferAcceptanceSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref OfferAcceptanceSubnetB, RouteTableId: !Ref PublicRouteTable}
+
+  DocumentSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.9.0/24, AvailabilityZone: !Select [0, !GetAZs '']}
+  DocumentSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties: {VpcId: !Ref Vpc, CidrBlock: 10.0.10.0/24, AvailabilityZone: !Select [1, !GetAZs '']}
+  DocumentSubnetAAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref DocumentSubnetA, RouteTableId: !Ref PublicRouteTable}
+  DocumentSubnetBAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: {SubnetId: !Ref DocumentSubnetB, RouteTableId: !Ref PublicRouteTable}
+
+  # Ingress rules are inline (not a standalone AWS::EC2::SecurityGroupIngress
+  # resource -- MiniStack's CloudFormation doesn't implement that resource
+  # type, confirmed via a failed deploy) and open (0.0.0.0/0) rather than
+  # self-referencing (which would need the standalone resource type to
+  # avoid a circular !Ref). SG enforcement isn't functionally load-bearing
+  # in this deployment anyway -- every call still goes through
+  # host.docker.internal:<port>, not real VPC-constrained routing.
+  AppMgmtSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: application-management-service
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 8081, ToPort: 8081, CidrIp: 0.0.0.0/0}]
+      SecurityGroupEgress: [{IpProtocol: -1, CidrIp: 0.0.0.0/0}]
+
+  PricingSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: pricing-orchestration-service + pricing-fargate
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 8082, ToPort: 8082, CidrIp: 0.0.0.0/0}]
+      SecurityGroupEgress: [{IpProtocol: -1, CidrIp: 0.0.0.0/0}]
+
+  WorkflowSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: workflow-status-service
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 8086, ToPort: 8086, CidrIp: 0.0.0.0/0}]
+      SecurityGroupEgress: [{IpProtocol: -1, CidrIp: 0.0.0.0/0}]
+
+  OfferAcceptanceSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: offer-acceptance-service
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 8085, ToPort: 8085, CidrIp: 0.0.0.0/0}]
+      SecurityGroupEgress: [{IpProtocol: -1, CidrIp: 0.0.0.0/0}]
+
+  DocumentSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: document-service
+      VpcId: !Ref Vpc
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 8084, ToPort: 8084, CidrIp: 0.0.0.0/0}]
+      SecurityGroupEgress: [{IpProtocol: -1, CidrIp: 0.0.0.0/0}]
+
+  ############################################################
+  # DynamoDB
+  ############################################################
+
+  ApplicationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pl-application
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: id, AttributeType: S}]
+      KeySchema: [{AttributeName: id, KeyType: HASH}]
+      TimeToLiveSpecification: {AttributeName: ttl, Enabled: true}
+
+  PricingOfferTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pl-pricing-offer
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: applicationId, AttributeType: S}]
+      KeySchema: [{AttributeName: applicationId, KeyType: HASH}]
+
+  OfferAcceptanceTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pl-offer-acceptance
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: applicationId, AttributeType: S}]
+      KeySchema: [{AttributeName: applicationId, KeyType: HASH}]
+
+  DocumentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pl-document
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: applicationId, AttributeType: S}]
+      KeySchema: [{AttributeName: applicationId, KeyType: HASH}]
+
+  ############################################################
+  # IAM
+  ############################################################
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: sts:AssumeRole}]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  AppMgmtTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: app-mgmt-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+                Resource: !GetAtt ApplicationTable.Arn
+              - Effect: Allow
+                Action: [states:StartExecution, states:DescribeExecution]
+                Resource: '*'
+
+  PricingTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: pricing-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+                Resource: !GetAtt PricingOfferTable.Arn
+              - Effect: Allow
+                Action: [states:SendTaskSuccess, states:SendTaskFailure]
+                Resource: '*'
+
+  WorkflowTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: workflow-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [states:DescribeExecution, states:GetExecutionHistory]
+                Resource: '*'
+
+  OfferAcceptanceTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: offer-acceptance-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+                Resource: !GetAtt OfferAcceptanceTable.Arn
+
+  DocumentTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: document-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query]
+                Resource: !GetAtt DocumentTable.Arn
+
+  PricingFargateTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: pricing-fargate-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [states:SendTaskSuccess, states:SendTaskFailure]
+                Resource: '*'
+
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement: [{Effect: Allow, Principal: {Service: states.amazonaws.com}, Action: sts:AssumeRole}]
+      Policies:
+        - PolicyName: pricing-orchestration-statemachine
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource:
+                  - !GetAtt SoftPullFunction.Arn
+                  - !GetAtt HardPullFunction.Arn
+                  - !GetAtt DecisionFunction.Arn
+                  - !GetAtt PresentOfferFunction.Arn
+                  - !GetAtt UpdateStatusFunction.Arn
+              - Effect: Allow
+                Action: [ecs:RunTask, ecs:StopTask, ecs:DescribeTasks]
+                Resource: '*'
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt PricingFargateTaskRole.Arn
+                  - !GetAtt EcsTaskExecutionRole.Arn
+              - Effect: Allow
+                Action: [events:PutTargets, events:PutRule, events:DescribeRule]
+                Resource: '*'
+
+  ############################################################
+  # CloudWatch log groups
+  ############################################################
+
+  AppMgmtLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /ecs/application-management-service}}
+  PricingLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /ecs/pricing-orchestration-service}}
+  WorkflowLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /ecs/workflow-status-service}}
+  OfferAcceptanceLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /ecs/offer-acceptance-service}}
+  DocumentLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /ecs/document-service}}
+  PricingFargateLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /ecs/pricing-fargate}}
+  LambdaLogGroup: {Type: AWS::Logs::LogGroup, Properties: {LogGroupName: /psr-pl/lambda}}
+
+  ############################################################
+  # Lambda functions -- soft-pull, hard-pull, decision, present-offer,
+  # update-status. pricing-fargate is a real ECS task now (see below),
+  # not a Lambda substitute -- the state machine registers the real,
+  # unmodified production ASL.
+  ############################################################
+
+  SoftPullFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: soft-pull-lambda
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code: {S3Bucket: !Ref LambdaArtifactBucket, S3Key: soft-pull-lambda.zip}
+      Timeout: 30
+
+  HardPullFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: hard-pull-lambda
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code: {S3Bucket: !Ref LambdaArtifactBucket, S3Key: hard-pull-lambda.zip}
+      Timeout: 30
+
+  DecisionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: decision-lambda
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code: {S3Bucket: !Ref LambdaArtifactBucket, S3Key: decision-lambda.zip}
+      Timeout: 30
+
+  PresentOfferFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: present-offer-lambda
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code: {S3Bucket: !Ref LambdaArtifactBucket, S3Key: present-offer-lambda.zip}
+      Timeout: 30
+      Environment:
+        Variables:
+          PRICING_ORCHESTRATION_BASE_URL: !Sub http://host.docker.internal:${PricingHostPort}
+
+  UpdateStatusFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: update-status-lambda
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: bootstrap
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code: {S3Bucket: !Ref LambdaArtifactBucket, S3Key: update-status-lambda.zip}
+      Timeout: 30
+      Environment:
+        Variables:
+          APPLICATION_MANAGEMENT_BASE_URL: !Sub http://host.docker.internal:${AppMgmtHostPort}
+
+  ############################################################
+  # ECS: real cluster, real task definitions, real services -- genuine
+  # Docker container execution confirmed via smoke test against MiniStack.
+  # Addressing stays on host.docker.internal:<port> (Cloud Map DNS doesn't
+  # actually resolve in real containers on MiniStack -- verified, not
+  # assumed).
+  ############################################################
+
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties: {ClusterName: psr-pl-cluster}
+
+  AppMgmtTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: application-management-service
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt AppMgmtTaskRole.Arn
+      ContainerDefinitions:
+        - Name: application-management-service
+          Image: !Sub psr-pl/application-management-service:${ImageTag}
+          PortMappings: [{ContainerPort: 8081}]
+          Environment:
+            - {Name: APPLICATION_TABLE_NAME, Value: !Ref ApplicationTable}
+            - {Name: OFFERLOG_BASE_URL, Value: !Sub 'http://localhost:${OfferlogMockHostPort}'}
+            - {Name: PRICING_STATE_MACHINE_ARN, Value: !Ref PricingStateMachine}
+            - {Name: PORT, Value: '8081'}
+            - {Name: DYNAMODB_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: STEPFUNCTIONS_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: AWS_ACCESS_KEY_ID, Value: test}
+            - {Name: AWS_SECRET_ACCESS_KEY, Value: test}
+            - {Name: AWS_DEFAULT_REGION, Value: us-east-1}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref AppMgmtLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: app}
+        - Name: offerlog-mock
+          Image: !Sub psr-pl/offerlog-mock:${ImageTag}
+          PortMappings: [{ContainerPort: 9090}]
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref AppMgmtLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: offerlog-mock}
+
+  AppMgmtService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: application-management-service
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref AppMgmtTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: [!Ref AppMgmtSubnetA, !Ref AppMgmtSubnetB]
+          SecurityGroups: [!Ref AppMgmtSg]
+          AssignPublicIp: ENABLED
+
+  PricingTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: pricing-orchestration-service
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt PricingTaskRole.Arn
+      ContainerDefinitions:
+        - Name: pricing-orchestration-service
+          Image: !Sub psr-pl/pricing-orchestration-service:${ImageTag}
+          PortMappings: [{ContainerPort: 8082}]
+          Environment:
+            - {Name: PRICING_OFFER_TABLE_NAME, Value: !Ref PricingOfferTable}
+            - {Name: APPLICATION_MANAGEMENT_BASE_URL, Value: !Sub 'http://host.docker.internal:${AppMgmtHostPort}'}
+            - {Name: PORT, Value: '8082'}
+            - {Name: DYNAMODB_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: STEPFUNCTIONS_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: AWS_ACCESS_KEY_ID, Value: test}
+            - {Name: AWS_SECRET_ACCESS_KEY, Value: test}
+            - {Name: AWS_DEFAULT_REGION, Value: us-east-1}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref PricingLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: app}
+
+  PricingService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: pricing-orchestration-service
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref PricingTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: [!Ref PricingSubnetA, !Ref PricingSubnetB]
+          SecurityGroups: [!Ref PricingSg]
+          AssignPublicIp: ENABLED
+
+  WorkflowTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: workflow-status-service
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt WorkflowTaskRole.Arn
+      ContainerDefinitions:
+        - Name: workflow-status-service
+          Image: !Sub psr-pl/workflow-status-service:${ImageTag}
+          PortMappings: [{ContainerPort: 8086}]
+          Environment:
+            - {Name: APPLICATION_MANAGEMENT_BASE_URL, Value: !Sub 'http://host.docker.internal:${AppMgmtHostPort}'}
+            - {Name: PORT, Value: '8086'}
+            - {Name: STEPFUNCTIONS_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: AWS_ACCESS_KEY_ID, Value: test}
+            - {Name: AWS_SECRET_ACCESS_KEY, Value: test}
+            - {Name: AWS_DEFAULT_REGION, Value: us-east-1}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref WorkflowLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: app}
+
+  WorkflowService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: workflow-status-service
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref WorkflowTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: [!Ref WorkflowSubnetA, !Ref WorkflowSubnetB]
+          SecurityGroups: [!Ref WorkflowSg]
+          AssignPublicIp: ENABLED
+
+  OfferAcceptanceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: offer-acceptance-service
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt OfferAcceptanceTaskRole.Arn
+      ContainerDefinitions:
+        - Name: offer-acceptance-service
+          Image: !Sub psr-pl/offer-acceptance-service:${ImageTag}
+          PortMappings: [{ContainerPort: 8085}]
+          Environment:
+            - {Name: OFFER_ACCEPTANCE_TABLE_NAME, Value: !Ref OfferAcceptanceTable}
+            - {Name: APPLICATION_MANAGEMENT_BASE_URL, Value: !Sub 'http://host.docker.internal:${AppMgmtHostPort}'}
+            - {Name: PORT, Value: '8085'}
+            - {Name: DYNAMODB_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: AWS_ACCESS_KEY_ID, Value: test}
+            - {Name: AWS_SECRET_ACCESS_KEY, Value: test}
+            - {Name: AWS_DEFAULT_REGION, Value: us-east-1}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref OfferAcceptanceLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: app}
+
+  OfferAcceptanceService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: offer-acceptance-service
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref OfferAcceptanceTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: [!Ref OfferAcceptanceSubnetA, !Ref OfferAcceptanceSubnetB]
+          SecurityGroups: [!Ref OfferAcceptanceSg]
+          AssignPublicIp: ENABLED
+
+  DocumentTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: document-service
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt DocumentTaskRole.Arn
+      ContainerDefinitions:
+        - Name: document-service
+          Image: !Sub psr-pl/document-service:${ImageTag}
+          PortMappings: [{ContainerPort: 8084}]
+          Environment:
+            - {Name: DOCUMENT_TABLE_NAME, Value: !Ref DocumentTable}
+            - {Name: APPLICATION_MANAGEMENT_BASE_URL, Value: !Sub 'http://host.docker.internal:${AppMgmtHostPort}'}
+            - {Name: PORT, Value: '8084'}
+            - {Name: DYNAMODB_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: AWS_ACCESS_KEY_ID, Value: test}
+            - {Name: AWS_SECRET_ACCESS_KEY, Value: test}
+            - {Name: AWS_DEFAULT_REGION, Value: us-east-1}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref DocumentLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: app}
+
+  DocumentService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: document-service
+      Cluster: !Ref EcsCluster
+      TaskDefinition: !Ref DocumentTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: [!Ref DocumentSubnetA, !Ref DocumentSubnetB]
+          SecurityGroups: [!Ref DocumentSg]
+          AssignPublicIp: ENABLED
+
+  # pricing-fargate: no ECS Service (not long-running) -- RunTask-invoked
+  # per execution by the state machine's PricingCalculation state, into
+  # pricing-orchestration-service's own subnets/SG.
+  PricingFargateTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: pricing-fargate
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '512'
+      Memory: '1024'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt PricingFargateTaskRole.Arn
+      ContainerDefinitions:
+        - Name: pricing-fargate
+          Image: !Sub psr-pl/pricing-fargate:${ImageTag}
+          Environment:
+            - {Name: STEPFUNCTIONS_ENDPOINT_URL, Value: http://host.docker.internal:4566}
+            - {Name: AWS_ACCESS_KEY_ID, Value: test}
+            - {Name: AWS_SECRET_ACCESS_KEY, Value: test}
+            - {Name: AWS_DEFAULT_REGION, Value: us-east-1}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options: {awslogs-group: !Ref PricingFargateLogGroup, awslogs-region: us-east-1, awslogs-stream-prefix: app}
+
+  ############################################################
+  # API Gateway v2 (HTTP API) -- one per service, direct HTTP_PROXY
+  # integration (ConnectionType INTERNET, no VpcLink -- MiniStack's
+  # VpcLink API 404s, verified via a standalone smoke test) to that
+  # service's published host port. IntegrationUri deliberately has NO
+  # trailing /{proxy} -- MiniStack doesn't substitute that path variable
+  # in HTTP_PROXY integration URIs (it forwards the literal string
+  # "/{proxy}/<path>" instead of the captured value, confirmed with a
+  # throwaway echo-server integration); omitting the placeholder makes it
+  # append the matched path automatically, which does work correctly.
+  ############################################################
+
+  AppMgmtApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: {Name: application-management-api, ProtocolType: HTTP, CorsConfiguration: {AllowOrigins: ['*'], AllowMethods: ['*'], AllowHeaders: ['*']}}
+  AppMgmtIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref AppMgmtApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub http://host.docker.internal:${AppMgmtHostPort}
+      PayloadFormatVersion: '1.0'
+  AppMgmtRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref AppMgmtApi, RouteKey: 'ANY /{proxy+}', Target: !Sub 'integrations/${AppMgmtIntegration}'}
+  AppMgmtStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: {ApiId: !Ref AppMgmtApi, StageName: local, AutoDeploy: true}
+
+  PricingApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: {Name: pricing-orchestration-api, ProtocolType: HTTP, CorsConfiguration: {AllowOrigins: ['*'], AllowMethods: ['*'], AllowHeaders: ['*']}}
+  PricingIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PricingApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub http://host.docker.internal:${PricingHostPort}
+      PayloadFormatVersion: '1.0'
+  PricingRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref PricingApi, RouteKey: 'ANY /{proxy+}', Target: !Sub 'integrations/${PricingIntegration}'}
+  PricingStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: {ApiId: !Ref PricingApi, StageName: local, AutoDeploy: true}
+
+  WorkflowApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: {Name: workflow-status-api, ProtocolType: HTTP, CorsConfiguration: {AllowOrigins: ['*'], AllowMethods: ['*'], AllowHeaders: ['*']}}
+  WorkflowIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WorkflowApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub http://host.docker.internal:${WorkflowHostPort}
+      PayloadFormatVersion: '1.0'
+  WorkflowRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref WorkflowApi, RouteKey: 'ANY /{proxy+}', Target: !Sub 'integrations/${WorkflowIntegration}'}
+  WorkflowStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: {ApiId: !Ref WorkflowApi, StageName: local, AutoDeploy: true}
+
+  OfferAcceptanceApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: {Name: offer-acceptance-api, ProtocolType: HTTP, CorsConfiguration: {AllowOrigins: ['*'], AllowMethods: ['*'], AllowHeaders: ['*']}}
+  OfferAcceptanceIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref OfferAcceptanceApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub http://host.docker.internal:${OfferAcceptanceHostPort}
+      PayloadFormatVersion: '1.0'
+  OfferAcceptanceRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref OfferAcceptanceApi, RouteKey: 'ANY /{proxy+}', Target: !Sub 'integrations/${OfferAcceptanceIntegration}'}
+  OfferAcceptanceStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: {ApiId: !Ref OfferAcceptanceApi, StageName: local, AutoDeploy: true}
+
+  DocumentApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties: {Name: document-api, ProtocolType: HTTP, CorsConfiguration: {AllowOrigins: ['*'], AllowMethods: ['*'], AllowHeaders: ['*']}}
+  DocumentIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref DocumentApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub http://host.docker.internal:${DocumentHostPort}
+      PayloadFormatVersion: '1.0'
+  DocumentRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties: {ApiId: !Ref DocumentApi, RouteKey: 'ANY /{proxy+}', Target: !Sub 'integrations/${DocumentIntegration}'}
+  DocumentStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties: {ApiId: !Ref DocumentApi, StageName: local, AutoDeploy: true}
+
+  ############################################################
+  # Step Functions -- the REAL, unmodified production ASL
+  # (pricing-orchestration-service/statemachine/definition.asl.json),
+  # loaded verbatim. PricingCalculation now genuinely runs pricing-fargate
+  # via ecs:runTask.waitForTaskToken against a real ECS task.
+  ############################################################
+
+  PricingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: PricingOrchestration
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionSubstitutions:
+        SoftPullLambdaArn: !GetAtt SoftPullFunction.Arn
+        HardPullLambdaArn: !GetAtt HardPullFunction.Arn
+        DecisionLambdaArn: !GetAtt DecisionFunction.Arn
+        PresentOfferLambdaArn: !GetAtt PresentOfferFunction.Arn
+        UpdateStatusLambdaArn: !GetAtt UpdateStatusFunction.Arn
+        EcsClusterArn: !GetAtt EcsCluster.Arn
+        PricingFargateTaskDefinitionArn: !Ref PricingFargateTaskDefinition
+      DefinitionString: |
+        {
+          "Comment": "pricing-orchestration workflow: soft pull -> price -> await applicant offer selection + hard-pull consent -> hard pull -> decide -> update application status. Started by application-management-service on submission (see CLAUDE.md's Workflow Architecture: Persist Application -> Start Step Function).",
+          "StartAt": "SoftPullRequest",
+          "States": {
+            "SoftPullRequest": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${SoftPullLambdaArn}",
+                "Payload.$": "$"
+              },
+              "ResultSelector": {
+                "score.$": "$.Payload.score",
+                "source.$": "$.Payload.source"
+              },
+              "ResultPath": "$.softPull",
+              "Next": "PricingCalculation"
+            },
+            "PricingCalculation": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::ecs:runTask.waitForTaskToken",
+              "Parameters": {
+                "LaunchType": "FARGATE",
+                "Cluster": "${EcsClusterArn}",
+                "TaskDefinition": "${PricingFargateTaskDefinitionArn}",
+                "Overrides": {
+                  "ContainerOverrides": [
+                    {
+                      "Name": "pricing-fargate",
+                      "Environment": [
+                        { "Name": "TASK_INPUT", "Value.$": "States.JsonToString($)" },
+                        { "Name": "TASK_TOKEN", "Value.$": "$$.Task.Token" }
+                      ]
+                    }
+                  ]
+                }
+              },
+              "ResultPath": "$.pricedOffers",
+              "Next": "AwaitOfferSelection"
+            },
+            "AwaitOfferSelection": {
+              "Comment": "Pauses until the applicant selects one of the offers and gives hard-pull consent, via pricing-orchestration-service's selected-offer API (POST .../confirm calls SendTaskSuccess with this task's token) -- not resumed by this Lambda itself.",
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+              "Parameters": {
+                "FunctionName": "${PresentOfferLambdaArn}",
+                "Payload": {
+                  "taskToken.$": "$$.Task.Token",
+                  "applicationId.$": "$.applicationId",
+                  "pricedOffers.$": "$.pricedOffers",
+                  "requestId.$": "$.requestId"
+                }
+              },
+              "ResultPath": "$.offerSelection",
+              "Next": "ConsentGivenCheck"
+            },
+            "ConsentGivenCheck": {
+              "Type": "Choice",
+              "Choices": [
+                { "Variable": "$.offerSelection.consentGiven", "BooleanEquals": true, "Next": "HardPullRequest" }
+              ],
+              "Default": "ConsentDeclined"
+            },
+            "ConsentDeclined": {
+              "Comment": "No hard pull without explicit consent -- this is the FCRA gate, not an optional branch.",
+              "Type": "Pass",
+              "Parameters": {
+                "outcome": "DECLINED",
+                "reason": "applicant did not give hard-pull consent"
+              },
+              "ResultPath": "$.decision",
+              "Next": "UpdateApplicationStatus"
+            },
+            "HardPullRequest": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${HardPullLambdaArn}",
+                "Payload.$": "$"
+              },
+              "ResultSelector": {
+                "score.$": "$.Payload.score",
+                "source.$": "$.Payload.source"
+              },
+              "ResultPath": "$.hardPull",
+              "Next": "DecisionRouting"
+            },
+            "DecisionRouting": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${DecisionLambdaArn}",
+                "Payload.$": "$"
+              },
+              "ResultSelector": {
+                "outcome.$": "$.Payload.outcome",
+                "reason.$": "$.Payload.reason"
+              },
+              "ResultPath": "$.decision",
+              "Next": "UpdateApplicationStatus"
+            },
+            "UpdateApplicationStatus": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${UpdateStatusLambdaArn}",
+                "Payload.$": "$"
+              },
+              "ResultPath": null,
+              "End": true
+            }
+          }
+        }
+
+Outputs:
+  AppMgmtApiUrl:
+    Value: !Sub http://${AppMgmtApi}.execute-api.localhost:4566/local
+  PricingApiUrl:
+    Value: !Sub http://${PricingApi}.execute-api.localhost:4566/local
+  WorkflowApiUrl:
+    Value: !Sub http://${WorkflowApi}.execute-api.localhost:4566/local
+  OfferAcceptanceApiUrl:
+    Value: !Sub http://${OfferAcceptanceApi}.execute-api.localhost:4566/local
+  DocumentApiUrl:
+    Value: !Sub http://${DocumentApi}.execute-api.localhost:4566/local
+  StateMachineArn:
+    Value: !Ref PricingStateMachine

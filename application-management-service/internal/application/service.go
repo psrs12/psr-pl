@@ -101,6 +101,11 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (*Application, 
 
 	executionArn, err := s.workflow.Start(ctx, WorkflowInput{
 		ApplicationID:           app.ID,
+		FirstName:               app.Applicant.FirstName,
+		LastName:                app.Applicant.LastName,
+		DateOfBirth:             app.Applicant.DateOfBirth,
+		SSN:                     app.Applicant.SSN,
+		Address:                 app.Applicant.Address,
 		RequestedAmountCents:    app.Applicant.RequestedAmountCents,
 		RequestedTermMonths:     app.Applicant.RequestedTermMonths,
 		AnnualIncomeCents:       app.Applicant.AnnualIncomeCents,
